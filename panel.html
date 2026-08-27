@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>知识库面板</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; margin: 14px; background: #f6f7f9; }
+  h2 { font-size: 15px; margin: 8px 0; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .ok { background: #2ecc71; } .bad { background: #e74c3c; }
+  button { padding: 6px 12px; border: none; border-radius: 4px; background: #4a6cf7; color: #fff; cursor: pointer; }
+  button:hover { background: #3a58d4; }
+  button.small { padding: 3px 8px; font-size: 12px; background: #8892a8; }
+  #docs-wrap { max-height: 190px; overflow-y: auto; border: 1px solid #ddd; background: #fff; }
+  #docs { width: 100%; border-collapse: collapse; font-size: 12px; background: #fff; }
+  #docs th, #docs td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; }
+  #docs th { background: #eef1f6; position: sticky; top: 0; }
+  tr.docrow { cursor: pointer; }
+  tr.docrow:hover { background: #eef3ff; }
+  #obs-table { width: 100%; border-collapse: collapse; font-size: 11px; background: #fff; }
+  #obs-table td { border: 1px solid #eee; padding: 3px 6px; }
+  #obs-table td:first-child { background: #fafbfd; color: #667; width: 45%; }
+  .obs-empty { font-size: 11px; color: #999; }
+  #msg { font-size: 12px; color: #555; min-height: 18px; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <h2>🔌 服务状态</h2>
+  <div class="row">
+    <span><span id="dsh-dot" class="dot bad"></span>DSH Agent</span>
+  </div>
+  <div class="row">
+    <button onclick="refresh()">🔄 刷新状态</button>
+    <button onclick="apiCall('start_mcp', {}, '正在启动 RAG 服务...')">▶ 启动 RAG 服务</button>
+    <button onclick="apiCall('start_dsh', {}, '正在启动 DSH...')">▶ 启动 DSH</button>
+  </div>
+
+  <h2>📚 知识库</h2>
+  <div class="row">
+    <button onclick="ingest()">⚡ 增量更新</button>
+    <button onclick="rebuild()">🔨 重建知识库（hmm）</button>
+  </div>
+  <div class="row">
+    <button class="small" onclick="rebuild('hybrid')">hybrid</button>
+    <button class="small" onclick="rebuild('discourse')">discourse</button>
+    <button class="small" onclick="rebuild('fixed')">fixed</button>
+  </div>
+  <div id="msg"></div>
+  <div id="docs-wrap">
+    <table id="docs">
+      <thead><tr><th>文档</th><th>块数</th></tr></thead>
+      <tbody><tr><td colspan="2">加载中...</td></tr></tbody>
+    </table>
+  </div>
+
+  <h2>📊 运行统计</h2>
+  <div id="obs"><div class="obs-empty">加载中...</div></div>
+
+<script>
+async function apiCall(name, args, msg) {
+  if (msg) document.getElementById('msg').textContent = msg;
+  try {
+    const r = await window.pywebview.api[name](...Object.values(args));
+    if (r && r.ok === false) document.getElementById('msg').textContent = '错误: ' + (r.error || JSON.stringify(r));
+    else if (msg) document.getElementById('msg').textContent = (r && r.msg) || '完成';
+  } catch (e) {
+    document.getElementById('msg').textContent = '调用失败: ' + e;
+  }
+  refresh();
+}
+
+async function refresh() {
+  let st = {};
+  try { st = await window.pywebview.api.get_status(); } catch (e) { st = {}; }
+  const dshDot = document.getElementById('dsh-dot');
+  dshDot.className = 'dot ' + (st.dsh ? 'ok' : 'bad');
+  const tbody = document.querySelector('#docs tbody');
+  const kb = (st.kb && st.kb.by_source) ? st.kb.by_source : null;
+  docNames.length = 0;
+  if (kb && Object.keys(kb).length) {
+    const rows = Object.entries(kb).sort((a, b) => b[1] - a[1])
+      .map(([k, v], i) => { docNames[i] = k; return `<tr class="docrow" onclick="openDoc(${i})" title="点击打开文档"><td>${k}</td><td>${v}</td></tr>`; }).join('');
+    tbody.innerHTML = rows;
+  } else {
+    tbody.innerHTML = '<tr><td colspan="2">知识库为空或服务未启动</td></tr>';
+  }
+  renderObs((st.kb && st.kb.obs) ? st.kb.obs : null);
+}
+
+function renderObs(obs) {
+  const box = document.getElementById('obs');
+  if (!obs || !obs.events_logged) {
+    box.innerHTML = '<div class="obs-empty">暂无运行记录（问答/检索后自动统计）</div>';
+    return;
+  }
+  const a = obs.avg_ms || {};
+  const c = obs.cache || {};
+  const f = (v) => (v === null || v === undefined) ? '—' : v;
+  const pct = (r) => (r === null || r === undefined) ? '—' : Math.round(r * 100) + '%';
+  const rows = [
+    ['问题处理（问答工具 / 搜索）', obs.asks + ' / ' + obs.searches + ' 次' + (obs.ask_errors ? `（问答失败 ${obs.ask_errors}）` : '')],
+    ['平均总耗时（改写/检索/生成 ms）', f(a.ask_total) + ' / ' + f(a.query_rewrite) + ' / ' + f(a.retrieve) + ' / ' + f(a.generate)],
+    ['检索细分（BM25/向量/重排 ms）', f(a.bm25) + ' / ' + f(a.vector) + ' / ' + f(a.rerank)],
+    ['累计成本（估算）', '¥' + (obs.cost_cny ?? 0) + ' · 输入 ' + ((obs.tokens && obs.tokens.in) || 0) + ' tok / 输出 ' + ((obs.tokens && obs.tokens.out) || 0) + ' tok'],
+    ['块缓存命中率', pct(c.chunk_hit_rate) + `（中 ${c.chunk_hit} / 未中 ${c.chunk_miss}）`],
+    ['嵌入缓存命中率', pct(c.embed_hit_rate) + `（中 ${c.embed_hit} / 未中 ${c.embed_miss}）`],
+    ['构建 / 增量更新', obs.builds + ' / ' + obs.ingests + ' 次'],
+  ];
+  box.innerHTML = '<table id="obs-table">' +
+    rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') +
+    '</table>';
+}
+
+const docNames = [];
+async function openDoc(i) {
+  const name = docNames[i];
+  if (!name) return;
+  document.getElementById('msg').textContent = '正在打开: ' + name + ' ...';
+  try {
+    const r = await window.pywebview.api.open_doc(name);
+    if (r && r.ok) document.getElementById('msg').textContent = '已打开: ' + name + (r.note ? '（' + r.note + '）' : '');
+    else document.getElementById('msg').textContent = '打开失败: ' + ((r && r.error) || '未知错误');
+  } catch (e) {
+    document.getElementById('msg').textContent = '打开失败: ' + e;
+  }
+}
+
+async function rebuild(mode = 'hmm') {
+  document.getElementById('msg').textContent = '重建中（约 2~5 分钟）...';
+  try {
+    const r = await window.pywebview.api.rebuild(mode);
+    document.getElementById('msg').textContent = r.msg || '已提交重建任务';
+  } catch (e) {
+    document.getElementById('msg').textContent = '提交失败: ' + e;
+  }
+}
+
+async function ingest() {
+  document.getElementById('msg').textContent = '增量更新中（检测文件变化，新增文档秒级~分钟级）...';
+  try {
+    const r = await window.pywebview.api.ingest();
+    document.getElementById('msg').textContent = r.msg || '已提交增量更新';
+  } catch (e) {
+    document.getElementById('msg').textContent = '提交失败: ' + e;
+  }
+}
+
+refresh();
+</script>
+</body>
+</html>

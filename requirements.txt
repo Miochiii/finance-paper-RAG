@@ -1,0 +1,19 @@
+# RAG 核心依赖（MinerU 为外部工具，按其官方文档/懒人包安装，不在此列）
+numpy
+scikit-learn
+hmmlearn
+tiktoken
+jieba
+rank-bm25
+qdrant-client
+sentence-transformers
+transformers
+torch
+openai
+python-docx
+modelscope
+fastapi
+uvicorn
+fastmcp==3.4.7
+pywebview        # 仅桌面端需要；不用可省略
+pytest           # 仅运行单元测试需要

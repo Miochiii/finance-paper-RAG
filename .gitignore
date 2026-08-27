@@ -1,0 +1,18 @@
+# 数据与模型（本地生成，不入库；BGE 等模型首次构建自动下载到 models/）
+data/
+models/
+
+# 环境与缓存
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/.tmp/
+
+# 个人输入文档（示例数据在 examples/ 下，会入库）
+input_pdf/
+input_docx/
+
+# IDE
+.idea/
+.vscode/
