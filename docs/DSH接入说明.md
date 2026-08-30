@@ -46,20 +46,23 @@ C:\Users\<你的用户名>\.dsh\profiles\web\cordis.patch.yml
 
 > 帮我看看本地知识库里有哪些文档
 
-agent 应调用 `mcp__rag__stats` 并列出文档。可用工具：
+agent 应调用 `mcp__rag__stats` 并列出文档。可用工具（共 15 个）：
 
 | 工具 | 用途 |
 |---|---|
-| `mcp__rag__search(query, top_k)` | 检索本地知识库（返回证据块与来源，**推荐首选**） |
+| `mcp__rag__search(query, top_k, year_min, year_max, authors, methods, tasks)` | 检索本地知识库，返回证据块与来源；**支持元数据筛选**（年份/作者/方法/任务），适合自行组织材料的场景（文献分析/综述/方向对比） |
+| `mcp__rag__ask(question, top_k, year_min, ...)` | 一键问答（检索+生成），**返回带可点击引用链接的标准答案**（段落末尾 `[来源N](http链接)` 直开 PDF 对应页）——基于库回答问题时优先用它，把 answer 原样呈现即可 |
 | `mcp__rag__stats()` | 知识库统计 + 运行统计 |
 | `mcp__rag__build(chunker, clear)` | 重建知识库 |
 | `mcp__rag__ingest()` | 增量入库（新文档处理后调用） |
-| `mcp__rag__ask(question, top_k)` | 一键问答（检索+生成，带引用） |
 | `mcp__rag__open_doc(doc, page)` | 打开某文档原始 PDF 并跳到指定页 |
+| `mcp__rag__direction_analyze(direction)` / `direction_compare(directions)` | 研究方向可行性分析 / 候选方向多维对比排序 |
+| `mcp__rag__survey_outline/draft/rewrite/edit/section/status/export` | 交互式综述工作台（7 个工具）；`survey_export` 返回 `editor_url`——浏览器新标签页编辑器，可手动修改文字或选中段落让 AI 重写 |
 
 ## 备注
 
 - 若 8000 端口被占用，可用环境变量 `RAG_PORT` 改端口并同步修改 `url`；
 - 不要同时运行多个会加载知识库的程序（本地 qdrant 存储只允许一个进程访问）；
 - 回答中的引用已带页码；如需“点击引用直接翻到 PDF 对应页”，可配合
-  DSH 插件 `dsh-rag-citation`（拦截 `RAG_LINK_BASE` 链接并调起本地阅读器）。
+  DSH 插件 `dsh-rag-citation`（拦截 `RAG_LINK_BASE` 链接并调起本地阅读器）；
+- 评测框架（`evaluate.py`）与复现细节见 `docs/EVAL.md`。

@@ -35,7 +35,32 @@ def test_build_context_expansion_dedup_page_guard():
 
 def test_linkify_answer_six_tuple():
     a = core._linkify_answer("见[来源1]。", [("[来源1]", "论文.pdf", "，第6页", 6, 6, 1)])
-    assert a == "见[[来源1]](http://127.0.0.1:3080/dsh-rag/open?doc=%E8%AE%BA%E6%96%87.pdf&page=6)。"
+    assert a == "见[来源1](http://127.0.0.1:3080/dsh-rag/open?doc=%E8%AE%BA%E6%96%87.pdf&page=6)。"
+
+
+def test_linkify_answer_clean_label_no_extra_brackets():
+    """回归：链接文字必须是干净的 [来源1]，不能是 [[来源1]]——
+    旧实现在 label 外层多套一层方括号，导致只有第一个链接可点。"""
+    used = [("[来源1]", "论文.pdf", "，第6页", 6, 6, 1)]
+    a = core._linkify_answer("见[来源1]。", used)
+    assert "[[来源1]]" not in a
+    assert "[来源1](http" in a
+
+
+def test_linkify_answer_model_double_brackets_normalized():
+    """模型若输出 [[来源1]] / 【来源2】，也归一化成干净链接。"""
+    used = [("[来源1]", "论文.pdf", "，第6页", 6, 6, 1), ("[来源2]", "论文.pdf", "，第7页", 7, 7, 2)]
+    a = core._linkify_answer("[[来源1]]与【来源2】。", used)
+    assert a.count("dsh-rag/open") == 2
+    assert "[[来源" not in a and "【来源" not in a
+    assert "[来源1](http" in a and "[来源2](http" in a
+
+
+def test_linkify_answer_repeated_label_all_linked():
+    """同一 [来源1] 出现多次时，每一处都必须变成链接（历史 bug：只点得动第一个）。"""
+    used = [("[来源1]", "论文.pdf", "，第6页", 6, 6, 1)]
+    a = core._linkify_answer("第1处[来源1]，第2处[来源1]。", used)
+    assert a.count("dsh-rag/open") == 2
 
 
 def test_classify_inputs():
@@ -99,3 +124,36 @@ def test_unified_mcp_mounted():
     assert core._mcp_app is not None
     assert core.app.router.lifespan_context is not None
     assert any(getattr(r, "path", "") == "/health" for r in core.app.routes)
+
+
+def test_editor_routes_registered_and_serve():
+    """综述编辑器（第一步）：/editor 页面路由 + /survey/editor_data 数据路由。"""
+    paths = [getattr(r, "path", "") for r in core.app.routes]
+    assert "/editor" in paths and "/survey/editor_data" in paths
+    resp = core.editor_page()
+    assert resp.status_code == 200
+    assert resp.path == core.EDITOR_HTML
+    assert os.path.isfile(core.EDITOR_HTML)
+    html = open(core.EDITOR_HTML, encoding="utf-8").read()
+    assert 'id="ta"' in html and "renderMD" in html
+
+
+def test_survey_editor_data_missing_topic():
+    r = core.survey_editor_data_http("不存在主题-xyz-123")
+    assert r["ok"] is False
+
+
+def test_rewrite_selection_route_registered_and_validation():
+    paths = [getattr(r, "path", "") for r in core.app.routes]
+    assert "/survey/rewrite_selection" in paths
+    req = core.RewriteSelectionReq(topic="不存在主题-xyz-123", selected_text="足够长的一段选中文字内容")
+    r = core.survey_rewrite_selection_http(req)
+    assert r["ok"] is False  # 无草稿：不调 LLM 直接报错
+
+
+def test_editor_save_route_registered_and_validation():
+    paths = [getattr(r, "path", "") for r in core.app.routes]
+    assert "/survey/editor_save" in paths
+    req = core.EditorSaveReq(topic="不存在主题-xyz-123", text="x")
+    r = core.survey_editor_save_http(req)
+    assert r["ok"] is False  # 无草稿：不落盘直接报错

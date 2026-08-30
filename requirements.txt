@@ -11,6 +11,7 @@ transformers
 torch
 openai
 python-docx
+scipy           # 评测配对显著性检验（evaluate.py --ttest）
 modelscope
 fastapi
 uvicorn

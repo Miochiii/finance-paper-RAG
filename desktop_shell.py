@@ -6,8 +6,8 @@ desktop_shell.py —— 桌面壳（PyWebview 双窗口）
   侧栏窗口：知识库面板（本地 HTML，经 MCP 协议调用 rag 服务，与 agent 用同一服务进程）
 
 面板功能：服务状态灯 / 启动 MCP 服务 / 打开 DSH / 文档列表 / 重建知识库。
-注意：面板通过 MCP(8001) 调用，与 agent 工具共用同一个服务进程——不要同时再开
-HTTP 服务（rag_server.py 的 8000 端口），否则会争抢 qdrant 本地存储锁。
+注意：面板经一体化服务（HTTP + MCP 同端口 8000）调用，与 agent 工具共用
+同一个服务进程——不要再启动第二个会加载检索器的进程，否则争抢 qdrant 锁。
 
 启动：python desktop_shell.py（或双击 启动桌面端.bat）
 """
@@ -26,8 +26,7 @@ sys.path.insert(0, BASE)
 
 DSH_URL = "http://127.0.0.1:3080"
 MCP_BASE = "http://127.0.0.1:8000"   # 一体化服务：HTTP + MCP 同端口
-# 默认直接调用 PATH 里的 dsh；未全局安装时在 .env 设 DSH_CMD=完整路径（如 ...\dsh.cmd）
-DSH_CMD = os.getenv("DSH_CMD", "dsh")
+DSH_CMD = os.getenv("DSH_CMD", "dsh")  # dsh 命令路径（PATH 或 .env 配置 DSH_CMD）
 
 
 # --------------------------------------------------------------------------
@@ -129,8 +128,10 @@ class Api:
         return {"ok": False, "error": f"未找到 {bat}"}
 
     def start_dsh(self):
-        if os.path.exists(DSH_CMD):
-            subprocess.Popen([DSH_CMD, "web", "--no-open"])
+        import shutil
+        dsh_exe = DSH_CMD if os.path.exists(DSH_CMD) else shutil.which(DSH_CMD)
+        if dsh_exe:
+            subprocess.Popen([dsh_exe, "web", "--no-open"])
             return {"ok": True, "msg": "DSH 启动中，约 10~30 秒后点刷新"}
         return {"ok": False, "error": f"未找到 dsh 命令（DSH_CMD={DSH_CMD}），请手动启动 DSH"}
 
@@ -160,6 +161,35 @@ class Api:
             return core.open_doc_kb(doc, 1)
         except Exception as e:
             return {"ok": False, "error": str(e)}
+
+    # ---- 综述工作台（面板 → MCP survey 工具） ----
+
+    def survey_outline(self, topic, outline=None, constraints=""):
+        args = {"topic": topic, "constraints": constraints}
+        if outline:
+            args["outline"] = outline
+        return mcp_call("survey_outline", args, timeout=300)
+
+    def survey_draft(self, topic):
+        return mcp_call("survey_draft", {"topic": topic}, timeout=1200)
+
+    def survey_rewrite(self, topic, section, instruction):
+        return mcp_call("survey_rewrite",
+                        {"topic": topic, "section": section, "instruction": instruction},
+                        timeout=600)
+
+    def survey_edit(self, topic, section, text):
+        return mcp_call("survey_edit", {"topic": topic, "section": section, "text": text},
+                        timeout=120)
+
+    def survey_section(self, topic, section):
+        return mcp_call("survey_section", {"topic": topic, "section": section}, timeout=120)
+
+    def survey_status(self, topic):
+        return mcp_call("survey_status", {"topic": topic}, timeout=120)
+
+    def survey_export(self, topic):
+        return mcp_call("survey_export", {"topic": topic, "format": "markdown"}, timeout=300)
 
 
 def main():

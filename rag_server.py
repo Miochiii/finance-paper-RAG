@@ -3,30 +3,28 @@
 rag_server.py —— 一体化本地 RAG 服务（HTTP API + MCP 双协议，单进程）
 
 一个进程同时提供：
-  - HTTP API（脚本 / 桌面面板调用）：GET /health /stats；POST /build /search /ask /open /ingest
-  - MCP 端点（DeepSeek Harness 注册工具）：/mcp
-    （工具：search / stats / build / ingest / ask / open_doc，DSH 中为 mcp__rag__*）
+  - HTTP API（脚本 / 桌面面板 / 综述编辑器调用）：
+      GET  /health /stats /editor /survey/status /survey/section /survey/editor_data
+      POST /build /search /ask /open /ingest /direction/analyze /direction/compare
+           /survey/outline /survey/draft /survey/rewrite /survey/edit /survey/export
+           /survey/rewrite_selection /survey/editor_save
+  - MCP 端点（DeepSeek Harness 注册工具）：/mcp，15 个工具
+    （search / stats / build / ingest / ask / open_doc / direction_analyze /
+      direction_compare / survey_outline / survey_draft / survey_rewrite /
+      survey_edit / survey_section / survey_status / survey_export，
+      DSH 中为 mcp__rag__*）
 
 单进程设计保证 qdrant 本地存储锁唯一持有者——不要再同时启动其他会加载
 检索器的进程。
 
 启动：python -m uvicorn rag_server:app --host 127.0.0.1 --port 8000
       （或双击 启动RAG服务.bat）
-
-接口：
-  HTTP  GET  /health                         环境自检
-  HTTP  GET  /stats                          知识库统计（含运行统计 obs）
-  HTTP  POST /build   {chunker, clear}       重建知识库（MinerU 输出 + docx 文档）
-  HTTP  POST /search  {query, top_k}         纯检索（返回块 + 来源，不生成）
-  HTTP  POST /ask     {question, top_k, deep} 检索 + 生成（带引用）
-  HTTP  POST /open    {doc, page}            打开原始 PDF 指定页
-  HTTP  POST /ingest  {}                     增量入库（只处理新增文档）
-  MCP   /mcp                                 同一批功能的 MCP 工具（供 DSH 注册）
 """
 
 import hashlib
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -43,7 +41,12 @@ VECTOR_DB_PATH = config.VECTOR_DB_PATH
 MINERU_OUT = config.MINERU_OUT
 DOCS_DIR = config.DOCS_DIR
 PDF_SOURCE_DIRS = config.PDF_SOURCE_DIRS
+# 引用链接基地址（DSH 前端只渲染 http/https 链接，自定义协议会被丢弃；
+# 环境变量 RAG_LINK_BASE 可在 DSH 端口变化时覆盖）
 RAG_LINK_BASE = config.RAG_LINK_BASE
+# 综述编辑器页面地址（浏览器新标签页；环境变量 RAG_EDITOR_BASE 可在端口变化时覆盖）
+EDITOR_BASE = os.getenv("RAG_EDITOR_BASE", "http://127.0.0.1:8000/editor")
+EDITOR_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor.html")
 
 # ---- 增量入库状态（侧车文件：记录每篇输入的哈希/模式，用于三分类）----
 INGEST_STATE_FILE = KB_FILE + ".ingest.json"
@@ -88,12 +91,14 @@ class BuildReq(BaseModel):
 class SearchReq(BaseModel):
     query: str
     top_k: int = 5
+    filters: dict = None   # 元数据过滤：{year_min,year_max,authors,methods,tasks}
 
 
 class AskReq(BaseModel):
     question: str
     top_k: int = 5
     deep: bool = False
+    filters: dict = None
 
 
 class OpenReq(BaseModel):
@@ -104,6 +109,65 @@ class OpenReq(BaseModel):
 class IngestReq(BaseModel):
     mineru_out: str = MINERU_OUT
     docs_dir: str = DOCS_DIR
+
+
+class DirectionReq(BaseModel):
+    direction: str
+    top_k: int = 12
+
+
+class DirectionsReq(BaseModel):
+    directions: list
+    weights: dict = None
+    top_k: int = 12
+
+
+class SurveyOutlineReq(BaseModel):
+    topic: str
+    constraints: str = ""
+    outline: list = None
+
+
+class SurveyDraftReq(BaseModel):
+    topic: str
+    outline: list = None
+    force: bool = False
+
+
+class SurveySectionReq(BaseModel):
+    topic: str
+    section: str
+
+
+class SurveyRewriteReq(BaseModel):
+    topic: str
+    section: str
+    instruction: str = "更学术化、更深入"
+
+
+class SurveyEditReq(BaseModel):
+    topic: str
+    section: str
+    text: str
+
+
+class SurveyExportReq(BaseModel):
+    topic: str
+    format: str = "markdown"
+
+
+class RewriteSelectionReq(BaseModel):
+    topic: str
+    selected_text: str
+    instruction: str = ""          # 重写指令（默认"改写得更学术化"）
+    evidence: bool = False         # True = v2 带知识库证据
+    context_scope: str = "section"  # section=本节上下文；full=全文上下文
+
+
+class EditorSaveReq(BaseModel):
+    topic: str
+    text: str
+    filename: str = ""             # 空=覆盖默认导出文件；非空=另存为（白名单校验）
 
 
 # ---- 全局状态（懒加载：health 秒回，不碰 GPU）----
@@ -239,12 +303,17 @@ def _build_context(results, max_chars: int = 4500):
 
 def _linkify_answer(answer: str, used) -> str:
     """把回答里的 [来源N] 替换为指向 DSH /dsh-rag/open 的 http 链接
-    （点击由 dsh-rag-citation 插件拦截并打开 PDF 对应页）。"""
+    （点击由 dsh-rag-citation 插件拦截并打开 PDF 对应页）。
+    链接文字必须是干净的 [来源N]——旧实现在 label 外层又套了一层方括号，
+    生成 [[来源N]](url)，部分渲染器会解析失败导致只有第一个链接可点。
+    另归一化模型可能输出的多余括号写法（[[来源N]] / 【来源N】）。"""
     import urllib.parse
+    answer = re.sub(r"\[\[(来源\s*\d+)\]\]", r"[\1]", answer)
+    answer = re.sub(r"【(来源\s*\d+)】", r"[\1]", answer)
     for label, source, _pages, ps, _pe, _idx in used:
         page = ps if ps is not None else 1
         doc_q = urllib.parse.quote(source, safe="")
-        answer = answer.replace(label, f"[{label}]({RAG_LINK_BASE}?doc={doc_q}&page={page})")
+        answer = answer.replace(label, f"{label}({RAG_LINK_BASE}?doc={doc_q}&page={page})")
     return answer
 
 
@@ -261,16 +330,18 @@ def stats_kb() -> dict:
     return {"total_chunks": len(chunks), "by_source": by_source, "obs": summarize()}
 
 
-def search_kb(query: str, top_k: int = 5) -> dict:
-    """纯检索：返回块与来源，不生成。"""
+def search_kb(query: str, top_k: int = 5, filters: dict = None) -> dict:
+    """纯检索：返回块与来源，不生成。filters 为元数据过滤（见 retriever.match_meta_filter）。"""
     from rag_core.observability import Timer, log_event
+    from rag_core.retriever import normalize_filters
     t_all = Timer()
+    filters = normalize_filters(filters)
     try:
         retriever = get_retriever()
     except RuntimeError as e:
         log_event("search", ok=False, total_ms=round(t_all.ms(), 1), error=str(e)[:120])
         return {"ok": False, "error": str(e)}
-    results = retriever.retrieve(query, bm25_k=20, vector_k=20, rerank_k=top_k)
+    results = retriever.retrieve(query, bm25_k=20, vector_k=20, rerank_k=top_k, filters=filters)
     rt = getattr(retriever, "last_timing", {}) or {}
     log_event(
         "search", ok=True,
@@ -279,8 +350,9 @@ def search_kb(query: str, top_k: int = 5) -> dict:
         bm25_ms=rt.get("bm25_ms"), vector_ms=rt.get("vector_ms"),
         rerank_ms=rt.get("rerank_ms"),
         hits=len(results),
+        filters=bool(filters),
     )
-    return {"ok": True, "results": results}
+    return {"ok": True, "results": results, "filters": filters}
 
 
 def build_kb(chunker: str = "hmm", clear: bool = False,
@@ -506,10 +578,12 @@ def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
             "msg": f"新增 {added_docs} 篇 / {added_chunks} 块，已入库并增量索引"}
 
 
-def ask_kb(question: str, top_k: int = 5) -> dict:
-    """检索 + 生成（DeepSeek），返回 {answer, citations}。"""
+def ask_kb(question: str, top_k: int = 5, filters: dict = None) -> dict:
+    """检索 + 生成（DeepSeek），返回 {answer, citations}。filters 为元数据过滤。"""
     from rag_core.observability import Timer, log_event
+    from rag_core.retriever import normalize_filters
     t_all = Timer()
+    filters = normalize_filters(filters)
     if not os.getenv("deepseek_api"):
         log_event("ask", ok=False, total_ms=round(t_all.ms(), 1), error="未配置 deepseek_api")
         return {"ok": False, "error": "未配置环境变量 deepseek_api"}
@@ -530,7 +604,7 @@ def ask_kb(question: str, top_k: int = 5) -> dict:
     t_ret = Timer()
     results = retriever.retrieve(
         qr["expanded_query"], bm25_k=20, vector_k=20, rerank_k=top_k,
-        keywords=qr["keywords"],
+        keywords=qr["keywords"], filters=filters,
     )
     retrieve_ms = t_ret.ms()
     rt = getattr(retriever, "last_timing", {}) or {}
@@ -545,7 +619,9 @@ def ask_kb(question: str, top_k: int = 5) -> dict:
     client = OpenAI(api_key=os.getenv("deepseek_api"), base_url="https://api.deepseek.com")
     system_prompt = (
         "你是一位基于文档知识库的问答助手。回答必须严格基于\"参考上下文\"，不编造信息。"
-        "回答末尾列出引用来源，格式：📚 参考来源: [来源N]；上下文标注的页码可一并给出。使用中文，精准简洁。"
+        "引用规范：每写完一个使用了上下文中某块内容的段落，就在该段落末尾标注对应来源编号，"
+        "形如 [来源1]（只写单层方括号；编号必须与上下文块的编号一致；一个段落引用多块则连续列出，如 [来源1][来源2]）。"
+        "不要在文末单列来源清单。使用中文，精准简洁，结构清晰。"
     )
     user_prompt = f"### 参考上下文\n{context}\n\n### 用户问题\n{question}\n"
     tokens_in = tokens_out = 0
@@ -628,12 +704,12 @@ def build(req: BuildReq):
 
 @app.post("/search")
 def search(req: SearchReq):
-    return search_kb(req.query, req.top_k)
+    return search_kb(req.query, req.top_k, req.filters)
 
 
 @app.post("/ask")
 def ask(req: AskReq):
-    return ask_kb(req.question, req.top_k)
+    return ask_kb(req.question, req.top_k, req.filters)
 
 
 @app.post("/open")
@@ -646,16 +722,148 @@ def ingest(req: IngestReq):
     return ingest_kb(req.mineru_out, req.docs_dir)
 
 
+@app.post("/direction/analyze")
+def direction_analyze(req: DirectionReq):
+    from rag_core.research_advisor import analyze_direction
+    try:
+        return analyze_direction(req.direction, req.top_k)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/direction/compare")
+def direction_compare(req: DirectionsReq):
+    from rag_core.research_advisor import compare_directions
+    try:
+        return compare_directions(req.directions, req.weights, req.top_k)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ================= 交互式综述（survey）路由 =================
+
+@app.post("/survey/outline")
+def survey_outline_http(req: SurveyOutlineReq):
+    from rag_core.survey import survey_outline
+    try:
+        return survey_outline(req.topic, req.constraints, req.outline)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/survey/draft")
+def survey_draft_http(req: SurveyDraftReq):
+    from rag_core.survey import survey_draft
+    try:
+        return survey_draft(req.topic, req.outline, req.force)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/survey/status")
+def survey_status_http(topic: str):
+    from rag_core.survey import survey_status
+    try:
+        return survey_status(topic)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/survey/section")
+def survey_section_http(topic: str, section: str):
+    from rag_core.survey import survey_section
+    try:
+        return survey_section(topic, section)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/survey/rewrite")
+def survey_rewrite_http(req: SurveyRewriteReq):
+    from rag_core.survey import survey_rewrite
+    try:
+        return survey_rewrite(req.topic, req.section, req.instruction)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/survey/edit")
+def survey_edit_http(req: SurveyEditReq):
+    from rag_core.survey import survey_edit
+    try:
+        return survey_edit(req.topic, req.section, req.text)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/survey/export")
+def survey_export_http(req: SurveyExportReq):
+    from rag_core.survey import survey_export
+    try:
+        r = survey_export(req.topic, req.format)
+        if r.get("ok"):
+            import urllib.parse
+            r["editor_url"] = f"{EDITOR_BASE}?topic={urllib.parse.quote(str(req.topic))}"
+        return r
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/editor")
+def editor_page():
+    """综述编辑器页面（浏览器新标签页）：加载 /survey/editor_data 的导出稿，
+    支持手动编辑、预览与（后续步骤）选中段落让 AI 重写。"""
+    from fastapi.responses import FileResponse
+    if not os.path.isfile(EDITOR_HTML):
+        return {"ok": False, "error": f"编辑器页面文件缺失: {EDITOR_HTML}"}
+    return FileResponse(EDITOR_HTML, media_type="text/html")
+
+
+@app.get("/survey/editor_data")
+def survey_editor_data_http(topic: str):
+    from rag_core.survey import survey_editor_data
+    return survey_editor_data(topic)
+
+
+@app.post("/survey/rewrite_selection")
+def survey_rewrite_selection_http(req: RewriteSelectionReq):
+    from rag_core.survey import survey_rewrite_selection
+    try:
+        return survey_rewrite_selection(
+            req.topic, req.selected_text, req.instruction,
+            evidence=req.evidence, context_scope=req.context_scope,
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/survey/editor_save")
+def survey_editor_save_http(req: EditorSaveReq):
+    from rag_core.survey import survey_editor_save
+    try:
+        return survey_editor_save(req.topic, req.text, req.filename)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # ================= MCP 工具（挂载到 /mcp，供 DSH 注册） =================
 
 mcp = FastMCP("rag")
 
 
 @mcp.tool(name="search")
-def mcp_search(query: str, top_k: int = 5) -> dict:
-    """在本地知识库中检索：只返回证据块与来源，不生成答案。
-    agent 推荐用法：先用本工具获取证据，再由 agent 自行组织回答（保持证据链与引用）。"""
-    return search_kb(query, top_k)
+def mcp_search(query: str, top_k: int = 5, year_min: int = None, year_max: int = None,
+               authors: list = None, methods: list = None, tasks: list = None) -> dict:
+    """在本地知识库中检索：只返回证据块与来源（含页码），不生成答案。
+    可选元数据过滤：year_min/year_max（年份闭区间）、authors（作者，任一命中）、
+    methods（方法标签，如 "随机森林"/"机器学习"）、tasks（任务标签，如 "信贷风控"）。
+    适合需要自行组织材料的场景（文献分析/综述/方向对比等）。
+    若用户要的是基于知识库的直接问答成品，请改用 ask 工具——它返回带可点击引用链接的
+    标准答案（每个引用段落末尾挂 [来源N](http链接)，点击直开本地 PDF 对应页），
+    直接把 ask 的 answer 字段呈现给用户即可，不要用 search 的证据自己改写。"""
+    filters = {"year_min": year_min, "year_max": year_max,
+               "authors": authors, "methods": methods, "tasks": tasks}
+    return search_kb(query, top_k, filters)
 
 
 @mcp.tool(name="stats")
@@ -679,10 +887,17 @@ def mcp_ingest() -> dict:
 
 
 @mcp.tool(name="ask")
-def mcp_ask(question: str, top_k: int = 5) -> dict:
-    """检索 + 生成（走 DeepSeek API，答案带引用来源）。
-    注意：agent 场景推荐先用 search 获取证据自行回答；本工具适合一键问答/桌面壳直连。"""
-    return ask_kb(question, top_k)
+def mcp_ask(question: str, top_k: int = 5, year_min: int = None, year_max: int = None,
+            authors: list = None, methods: list = None, tasks: list = None) -> dict:
+    """检索 + 生成（走 DeepSeek API）：返回基于知识库的成品答案，
+    每个引用段落的末尾带可点击引用链接 [来源N](http://127.0.0.1:3080/dsh-rag/open?doc=...&page=...)，
+    点击直开本地 PDF 对应页（标准引用样式）。用户需要基于本地库回答问题/解释概念时
+    优先调用本工具，并把 answer 字段直接作为回复呈现，不要改写。
+    可选元数据过滤：year_min/year_max（年份闭区间）、authors（作者，任一命中）、
+    methods（方法标签）、tasks（任务标签），如"只看2022年以后机器学习方法的信贷风控论文"。"""
+    filters = {"year_min": year_min, "year_max": year_max,
+               "authors": authors, "methods": methods, "tasks": tasks}
+    return ask_kb(question, top_k, filters)
 
 
 @mcp.tool(name="open_doc")
@@ -690,6 +905,110 @@ def mcp_open_doc(doc: str, page: int = 1) -> dict:
     """打开知识库中某文档的原始 PDF 并跳到指定页。
     doc 为文档名（如 论文名.pdf）；page 为页码，默认第 1 页。"""
     return open_doc_kb(doc, page)
+
+
+@mcp.tool(name="direction_analyze")
+def mcp_direction_analyze(direction: str, top_k: int = 12) -> dict:
+    """分析单个研究方向：基于本地文献检索证据，给出创新点、可行性/数据可得性评分、
+    风险、文献空白与切入建议。适合用户有模糊研究想法时逐步明确。"""
+    from rag_core.research_advisor import analyze_direction
+    try:
+        return analyze_direction(direction, top_k)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="direction_compare")
+def mcp_direction_compare(directions: list, weights: dict = None, top_k: int = 12) -> dict:
+    """对比 2~5 个候选研究方向并排序推荐：多维评分（文献支撑度/近年热度/方法成熟度/
+    创新空间/数据可得性/总体可行性），weights 可自定义各维度权重（键：
+    literature/recency/maturity/gap/data/feasibility）。返回排序与推荐理由。"""
+    from rag_core.research_advisor import compare_directions
+    try:
+        return compare_directions(directions, weights, top_k)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ================= 交互式综述（survey）MCP 工具 =================
+
+@mcp.tool(name="survey_outline")
+def mcp_survey_outline(topic: str, constraints: str = "", outline: list = None) -> dict:
+    """生成或保存综述大纲。传入 outline（手动编辑后的节列表 [{title, keywords}]）
+    则直接校验保存；不传则基于本地文献检索 + LLM 自动生成 4~7 节大纲。"""
+    from rag_core.survey import survey_outline
+    try:
+        return survey_outline(topic, constraints, outline)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="survey_draft")
+def mcp_survey_draft(topic: str, outline: list = None, force: bool = False) -> dict:
+    """按大纲逐节生成综述草稿：每节先检索本地证据（先检索后写作），段落内用 [来源N]
+    标注引用（可溯源到文献与页码）。已生成的节默认跳过（断点续写）；force=True 全量重写。"""
+    from rag_core.survey import survey_draft
+    try:
+        return survey_draft(topic, outline, force)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="survey_rewrite")
+def mcp_survey_rewrite(topic: str, section: str, instruction: str = "更学术化、更深入") -> dict:
+    """只重写综述的指定小节（section 为节标题或序号），其余节不变。
+    instruction 为修改指令，如"深入对比深度学习与传统方法的优缺点""缩短到200字"。"""
+    from rag_core.survey import survey_rewrite
+    try:
+        return survey_rewrite(topic, section, instruction)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="survey_edit")
+def mcp_survey_edit(topic: str, section: str, text: str) -> dict:
+    """手动编辑：用给定文本直接覆盖综述的指定小节（不经 LLM，用户手改）。"""
+    from rag_core.survey import survey_edit
+    try:
+        return survey_edit(topic, section, text)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="survey_section")
+def mcp_survey_section(topic: str, section: str) -> dict:
+    """读取综述草稿中指定小节的当前内容（section 为节标题或序号）。"""
+    from rag_core.survey import survey_section
+    try:
+        return survey_section(topic, section)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="survey_status")
+def mcp_survey_status(topic: str) -> dict:
+    """查看综述草稿状态：大纲、各节字数、总字数、引用数与草稿文件路径。"""
+    from rag_core.survey import survey_status
+    try:
+        return survey_status(topic)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool(name="survey_export")
+def mcp_survey_export(topic: str, format: str = "markdown") -> dict:
+    """导出综述（当前支持 markdown）：引用编号重排为 [N] 并生成参考文献列表，返回导出文件路径。
+    结果含 editor_url——一个浏览器新标签页编辑器，可手动修改文字（保存/另存为在第4步接入），
+    也可选中某一段让 AI 重写（第2步接入）。用户要"打开编辑器窗口"时，把 editor_url 作为可点击链接呈现即可。"""
+    from rag_core.survey import survey_export
+    try:
+        r = survey_export(topic, format)
+        if r.get("ok"):
+            import urllib.parse
+            r["editor_url"] = f"{EDITOR_BASE}?topic={urllib.parse.quote(str(topic))}"
+        return r
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # 挂载 MCP（streamable-http 协议，路径 /mcp）。
@@ -727,6 +1046,10 @@ li{margin:4px 0}
 <li><code>ingest()</code> —— 增量更新（新文档入库）</li>
 <li><code>ask(question, top_k)</code> —— 检索 + 生成问答</li>
 <li><code>open_doc(doc, page)</code> —— 打开 PDF 指定页</li>
+<li><code>direction_analyze(direction)</code> —— 单研究方向分析（创新点/可行性/空白）</li>
+<li><code>direction_compare(directions, weights)</code> —— 多方向对比排序推荐</li>
+<li><code>survey_outline / survey_draft / survey_rewrite / survey_edit</code> —— 交互式综述（大纲→草稿→改稿）</li>
+<li><code>survey_section / survey_status / survey_export</code> —— 综述读取/状态/导出</li>
 </ul>
 <p>看到本页即说明服务正常。若 DSH 里工具未出现，请检查补丁配置的 <code>url</code> 与本服务端口是否一致。</p>
 </body></html>"""

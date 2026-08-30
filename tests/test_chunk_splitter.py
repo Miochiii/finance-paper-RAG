@@ -76,7 +76,7 @@ def test_attribute_pages_literal_newline():
 
 
 def test_clean_text_page_marker_residue():
-    out = _clean_text("【第12页】\n正文第56页残留\n====Page 3====")
+    out = _clean_text("【第12页】\n正文第56页残留\n=====Page 3=====")
     assert "【】" in out  # 标记残留
     assert "第56页" not in out  # 页眉噪声
     assert "Page 3" not in out

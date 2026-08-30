@@ -14,7 +14,7 @@ def test_chunk_entries_metadata(work_tmp):
 
 
 def test_add_entries_and_save(work_tmp):
-    store = os.path.join(work_tmp, "kb.json")
+    store = os.path.join(work_tmp, "kb_entries.json")
     kb = KnowledgeBase(store)
     kb.add_entries(_chunk_entries(["文本甲"], "a.pdf", "hmm", "P:/a.pdf", [(1, 1)]))
     kb.save()
@@ -24,7 +24,7 @@ def test_add_entries_and_save(work_tmp):
 
 
 def test_save_dedup_and_metadata_merge(work_tmp):
-    store = os.path.join(work_tmp, "kb.json")
+    store = os.path.join(work_tmp, "kb_merge.json")
     kb = KnowledgeBase(store)
     kb.add_entries(_chunk_entries(["同一文本"], "a.pdf", "hmm", None, None))
     kb.save()
@@ -38,7 +38,7 @@ def test_save_dedup_and_metadata_merge(work_tmp):
 
 
 def test_to_texts_metadatas_fields(work_tmp):
-    store = os.path.join(work_tmp, "kb.json")
+    store = os.path.join(work_tmp, "kb_tm.json")
     kb = KnowledgeBase(store)
     kb.add_entries(_chunk_entries(["t1"], "a.pdf", "hmm", "P:/a.pdf", [(2, 5)]))
     kb.save()

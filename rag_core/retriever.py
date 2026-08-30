@@ -91,6 +91,74 @@ def _tokenize(text: str) -> List[str]:
         return list(text)
 
 
+# ---------- 元数据过滤（年份/作者/方法/任务） ----------
+
+def normalize_filters(filters: Optional[Dict]) -> Optional[Dict]:
+    """清洗过滤条件：丢弃空值；全部为空返回 None（= 不过滤）。
+    支持键：year_min / year_max（整数年份，闭区间）、
+    authors / methods / tasks（字符串或字符串列表）。"""
+    if not filters:
+        return None
+    out: Dict = {}
+    for k in ("year_min", "year_max"):
+        v = filters.get(k)
+        if v is None or isinstance(v, bool):
+            continue
+        try:
+            out[k] = int(v)
+        except (TypeError, ValueError):
+            continue
+    for k in ("authors", "methods", "tasks"):
+        v = filters.get(k)
+        if isinstance(v, str):
+            v = [v]
+        if isinstance(v, (list, tuple)):
+            items = [str(x).strip() for x in v if x and str(x).strip()]
+            if items:
+                out[k] = items
+    return out or None
+
+
+def match_meta_filter(meta: Dict, filters: Optional[Dict]) -> bool:
+    """块元数据是否满足过滤条件（供检索时对候选块做掩码）。
+    - year_min / year_max：年份闭区间（块缺少年份则不通过）；
+    - authors / methods / tasks：任一命中即通过，双向包含匹配
+      （"随机森林"可命中"随机森林、XGBoost"这类写法差异）。"""
+    if not filters:
+        return True
+    m = meta or {}
+    for bound in ("year_min", "year_max"):
+        if filters.get(bound) is not None:
+            y = m.get("year")
+            if not isinstance(y, int):
+                return False
+            if bound == "year_min" and y < filters[bound]:
+                return False
+            if bound == "year_max" and y > filters[bound]:
+                return False
+
+    def _hit(field: str, wanted: list) -> bool:
+        vals = m.get(field)
+        if vals is None:
+            vals = []
+        if isinstance(vals, str):
+            vals = [vals]
+        for v in vals:
+            v = str(v)
+            for w in wanted:
+                w = str(w)
+                if w and (w in v or v in w):
+                    return True
+        return False
+
+    for field in ("author", "methods", "tasks"):
+        wanted = filters.get(field + "s" if field == "author" else field)
+        if wanted:
+            if not _hit(field, wanted):
+                return False
+    return True
+
+
 # ---------- RRF 融合 ----------
 
 def _rrf_fusion(
@@ -274,6 +342,7 @@ class HybridRetriever:
         vector_k: int = 20,
         rerank_k: int = 5,
         keywords: List[str] = None,
+        filters: Optional[Dict] = None,
     ) -> List[Dict]:
         """
         混合检索主入口。
@@ -284,6 +353,10 @@ class HybridRetriever:
             vector_k: 向量召回数
             rerank_k: 重排序后返回数
             keywords: 预提取的关键词列表，增强 BM25 召回
+            filters: 元数据过滤（可选），见 match_meta_filter：
+                {"year_min": 2020, "year_max": 2024,
+                 "authors": ["张三"], "methods": ["随机森林"], "tasks": ["信贷风控"]}
+                过滤在候选层生效（BM25 掩码 + 向量过采样后过滤），不影响索引。
 
         返回:
             [{index, text, metadata}, ...]
@@ -295,15 +368,23 @@ class HybridRetriever:
         import time as _time
         self.last_timing = {}
 
+        # 元数据过滤：候选层掩码（过滤后为空直接返回，不碰 GPU）
+        mask = None
+        if filters:
+            mask = [match_meta_filter(m, filters) for m in self.metadatas]
+            if not any(mask):
+                self.last_timing.update({"bm25_ms": 0.0, "vector_ms": 0.0, "rerank_ms": 0.0})
+                return []
+
         # 合并用户问题 + 关键词作为 BM25 查询
         bm25_input = query
         if keywords:
             bm25_input = query + " " + " ".join(keywords)
 
         t0 = _time.perf_counter()
-        bm25_hits = self._bm25_search(bm25_input, bm25_k)
+        bm25_hits = self._bm25_search(bm25_input, bm25_k, mask)
         t1 = _time.perf_counter()
-        vector_hits = self._vector_search(query, vector_k)
+        vector_hits = self._vector_search(query, vector_k, mask)
         t2 = _time.perf_counter()
         self.last_timing["bm25_ms"] = round((t1 - t0) * 1000, 1)
         self.last_timing["vector_ms"] = round((t2 - t1) * 1000, 1)
@@ -322,16 +403,22 @@ class HybridRetriever:
         self.last_timing["rerank_ms"] = round((t3 - t2) * 1000, 1)
         return self._format_results(reranked_ids)
 
-    def _bm25_search(self, query: str, top_k: int) -> List[Tuple[int, float]]:
+    def _bm25_search(self, query: str, top_k: int, mask: Optional[List[bool]] = None) -> List[Tuple[int, float]]:
         if self._bm25_index is None:
             return []
         tokenized_query = _tokenize(query)
         scores = self._bm25_index.get_scores(tokenized_query)
+        if mask is not None:
+            # 掩码：被过滤块分数置 -inf，必然排在末尾
+            mask_arr = np.asarray(mask, dtype=bool)
+            if mask_arr.shape != scores.shape:
+                return []
+            scores = np.where(mask_arr, scores, -np.inf)
         top_indices = np.argsort(scores)[::-1][:top_k]
         return [(int(i), float(scores[i])) for i in top_indices if scores[i] > 0]
 
     def _vector_search(
-        self, query: str, top_k: int
+        self, query: str, top_k: int, mask: Optional[List[bool]] = None
     ) -> List[Tuple[int, float]]:
         if self._vector_client is None:
             from qdrant_client import QdrantClient
@@ -352,14 +439,24 @@ class HybridRetriever:
             normalize_embeddings=True,
         )
 
+        # 有掩码时过采样（向量库里没有元数据载荷，过滤在 Python 侧做）
+        limit = top_k if mask is None else max(top_k * 3, 20)
         results = self._vector_client.query_points(
             collection_name=self._collection_name,
             query=query_vec.tolist(),
-            limit=top_k,
+            limit=limit,
         )
-        # 防御：过滤越界 id（旧存储段残留的孤儿点），保证下游 chunks[cid] 安全
-        return [(hit.id, hit.score) for hit in results.points
-                if isinstance(hit.id, int) and 0 <= hit.id < len(self.chunks)]
+        hits: List[Tuple[int, float]] = []
+        for hit in results.points:
+            # 防御：过滤越界 id（旧存储段残留的孤儿点），保证下游 chunks[cid] 安全
+            if not (isinstance(hit.id, int) and 0 <= hit.id < len(self.chunks)):
+                continue
+            if mask is not None and not mask[hit.id]:
+                continue
+            hits.append((hit.id, hit.score))
+            if len(hits) >= top_k:
+                break
+        return hits
 
     def _rerank(
         self, query: str, candidate_ids: List[int], top_k: int

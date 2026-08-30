@@ -258,7 +258,12 @@ def attribute_pages(raw_text: str, chunks: List[str]) -> List[Tuple[Optional[int
     cleaned = _clean_text(raw_conv)
     raw_marks = [(m.start(), int(m.group(1))) for m in _PAGE_MARK_RE.finditer(raw_text)]
     conv_marks = [(m.start(), int(m.group(1))) for m in _PAGE_MARK_RE.finditer(raw_conv)]
-    residues = [m.start() for m in _RESIDUE_RE.finditer(cleaned)]
+    # 只把"独占一行的【】"视为页码残留（正文中杂散的【】不做锚点，防止映射错位）
+    residues = [
+        m.start() for m in _RESIDUE_RE.finditer(cleaned)
+        if (m.start() == 0 or cleaned[m.start() - 1] == "\n")
+        and cleaned[m.end():m.end() + 1] in ("\n", "")
+    ]
     clean_marks = [
         (pos, conv_marks[i][1]) for i, pos in enumerate(residues) if i < len(conv_marks)
     ]

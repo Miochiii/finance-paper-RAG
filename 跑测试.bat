@@ -12,6 +12,6 @@ if not exist "%PY%" (
 )
 
 echo 运行单元测试（不需要 GPU / 知识库服务）...
-"%PY%" -m pytest tests -q
+"%PY%" -m pytest tests -q -p no:cacheprovider
 echo.
 pause

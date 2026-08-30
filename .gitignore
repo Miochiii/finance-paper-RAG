@@ -1,6 +1,10 @@
 # 数据与模型（本地生成，不入库；BGE 等模型首次构建自动下载到 models/）
 data/
+!data/annotations/
+data/annotations/*.csv
+!data/annotations/finance_annotations.csv.template
 models/
+results/
 
 # 环境与缓存
 .env

@@ -7,10 +7,14 @@
 - 📄 **多格式解析**：PDF 经 MinerU 版面解析（正文/表格/公式/图注，页码溯源），Word 直接提取；
 - ✂️ **四种分块模式**：`fixed`（固定长度）/ `discourse`（章节感知）/ `hybrid`（表格感知）/ `hmm`（**HMM 无监督话题分割 + BIC 自适应选 K**，默认）；
 - 🔍 **混合检索**：BM25（含金融领域词典）+ BGE 向量 + RRF 融合 + BGE-Reranker 精排；
+- 🏷️ **元数据筛选检索**：按年份区间 / 作者 / 方法标签 / 任务标签过滤（如"只看 2022 年以后机器学习方法的信贷风控论文"）；
 - 📑 **引用带页码**：回答引用形如 `[来源1] 论文.pdf，第12-13页`，可配合 DSH 插件直接翻到 PDF 对应页；
 - 📥 **增量入库**：按文件哈希只处理新增文档，已有向量不动；
 - 📊 **可观测性**：每次问答的延迟分解（改写/检索/生成）、token 消耗、成本估算、缓存命中率；
-- 🧩 **MCP 工具化**：6 个工具（search / stats / build / ingest / ask / open_doc）供 DeepSeek Harness 注册；
+- 🧭 **方向辅助**：研究方向可行性分析、候选方向多维对比排序（基于本地文献证据）；
+- 📝 **交互式综述工作台**：大纲协商 → 逐节生成（先检索后写作）→ 局部重写/手动编辑 → 导出；`survey_export` 附 **`editor_url` 浏览器编辑器**——手动修改文字或选中段落让 AI 重写（可选带知识库证据）；
+- 🧪 **评测框架**：5 分块方法受控消融 + 检索/生成指标 + LLM-as-judge + 配对显著性检验（见「评测」节）；
+- 🧩 **MCP 工具化**：15 个工具供 DeepSeek Harness 注册；
 - 🖥️ **桌面端**：PyWebview 双窗口（DSH 对话 + 知识库面板）。
 
 ## 架构
@@ -36,13 +40,20 @@ rag_server 一体化服务（HTTP 8000 + MCP 8000/mcp）
 
 ```
 rag-finance/
-├── rag_core/                # 核心管线（配置/解析/分块/检索/问答/可观测）
-├── rag_server.py            # 一体化服务（HTTP + MCP 单进程）
+├── rag_core/                # 核心管线（配置/解析/分块/检索/元数据/方向/综述/可观测）
+├── rag_server.py            # 一体化服务（HTTP + MCP 单进程，15 个 MCP 工具）
 ├── run_rag.py               # 命令行入口
 ├── desktop_shell.py         # 桌面端（可选）
 ├── panel.html               # 知识库面板
-├── tests/                   # 单元测试（pytest，无需 GPU）
-├── docs/DSH接入说明.md      # DeepSeek Harness 注册 MCP 工具步骤
+├── editor.html              # 综述编辑器页面（/editor，浏览器新标签页）
+├── evaluate.py              # 分块消融评测框架（5 方法 + 配对显著性检验）
+├── build_docs_cache_v2.py   # MinerU 输出 → 评测用文档缓存
+├── tests/                   # 单元测试（pytest，无需 GPU，78 项）
+├── docs/
+│   ├── DSH接入说明.md       # DeepSeek Harness 注册 MCP 工具步骤
+│   └── EVAL.md              # 评测数据格式 / 指标定义 / 复现步骤 / 参考结果
+├── data/
+│   └── annotations/finance_annotations.csv.template  # 人工标注格式模板（数据本身不入库）
 ├── examples/                # 样例数据（3 分钟跑通全流程）
 ├── requirements.txt
 ├── .env.example
@@ -153,6 +164,31 @@ agent 场景直接调用 `mcp__rag__ingest`。
 pip install pytest
 python -m pytest tests -q     # 全部为纯函数测试，不需要 GPU 与服务
 ```
+
+## 评测（分块消融）
+
+内置评测框架对 5 种分块方式做受控消融（唯一变量 = 分块方式，检索栈与生成配置全部固定），支持检索指标、生成指标、LLM-as-judge 打分与两两配对 t 检验 / Wilcoxon。
+
+在自建金融论文语料（38 篇 MinerU 解析 + 40 条人工标注问答，数据非公开）上的参考结果（`--skip-gen` 检索指标均值，n=40）：
+
+| 指标 | fixed | discourse | hybrid | hmm（默认） | hmm_fixed_k |
+|---|---|---|---|---|---|
+| recall@5 | 0.9250 | **0.9500** | 0.9250 | 0.9250 | **0.9500** |
+| mrr | 0.8938 | **0.9375** | 0.9062 | 0.9062 | 0.9300 |
+| ndcg@5 | 0.9015 | **0.9408** | 0.9108 | 0.9108 | 0.9347 |
+| recall@5_c | 0.4164 | 0.4811 | **0.5168** | 0.4942 | 0.4621 |
+| mrr_c | 0.3937 | **0.4946** | 0.4904 | 0.4842 | 0.4479 |
+| ndcg@5_c | 0.3120 | 0.3860 | 0.3916 | **0.3930** | 0.3769 |
+
+结论：① 文档级召回 ≥ 92.5%，检索栈对分块方式稳健，是系统质量的来源；② 块级证据召回（0.31–0.52）是主要短板，由"引用带页码 + 点击直开 PDF 对应页"兜底；③ 5 方法两两配对检验全部 p > 0.05（最接近的 fixed vs hybrid 块级 p≈0.057），分块方式不是质量瓶颈。
+
+```bash
+python build_docs_cache_v2.py --mineru-out <MinerU输出> --save data/docs_cache_v2.json
+python evaluate.py --methods all --source finance --skip-gen --docs-cache data/docs_cache_v2.json
+python evaluate.py --ttest-only --methods all --source finance
+```
+
+> 数据格式、指标定义、复现细节见 `docs/EVAL.md`；指标回归测试见 `tests/test_evaluate_metrics.py`。
 
 ## 常见问题
 

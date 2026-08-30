@@ -54,7 +54,29 @@
     </table>
   </div>
 
-  <h2>📊 运行统计</h2>
+  <h2>📝 综述工作台</h2>
+  <div class="row">
+    <input id="sv-topic" placeholder="综述主题" style="flex:1;padding:5px;border:1px solid #ccc;border-radius:4px">
+    <button onclick="svGenerateOutline()">🔍 大纲</button>
+  </div>
+  <div id="sv-outline" style="margin:6px 0"></div>
+  <div class="row">
+    <button class="small" onclick="svAddSection()">＋ 添加一节</button>
+    <button class="small" onclick="svSaveOutline()">💾 保存大纲</button>
+    <button class="small" onclick="svDraft()">✍️ 生成草稿</button>
+    <button class="small" onclick="svExport()">📥 导出</button>
+  </div>
+  <div id="sv-draft" style="margin:6px 0"></div>
+  <div id="sv-body-wrap" style="display:none;margin:6px 0">
+    <textarea id="sv-body" rows="7" style="width:100%;box-sizing:border-box;font-size:11px"></textarea>
+    <div class="row">
+      <button class="small" onclick="svSaveBody()">💾 保存此节</button>
+      <button class="small" onclick="document.getElementById('sv-body-wrap').style.display='none'">关闭</button>
+    </div>
+  </div>
+  <div id="sv-msg" style="font-size:12px;color:#555;min-height:16px"></div>
+
+  <h2>📊 运行统计 <button class="small" id="obs-toggle" onclick="toggleObs()">收起</button></h2>
   <div id="obs"><div class="obs-empty">加载中...</div></div>
 
 <script>
@@ -86,6 +108,18 @@ async function refresh() {
     tbody.innerHTML = '<tr><td colspan="2">知识库为空或服务未启动</td></tr>';
   }
   renderObs((st.kb && st.kb.obs) ? st.kb.obs : null);
+}
+
+function toggleObs() {
+  const box = document.getElementById('obs');
+  const btn = document.getElementById('obs-toggle');
+  if (box.style.display === 'none') {
+    box.style.display = '';
+    btn.textContent = '收起';
+  } else {
+    box.style.display = 'none';
+    btn.textContent = '展开';
+  }
 }
 
 function renderObs(obs) {
@@ -144,6 +178,135 @@ async function ingest() {
   } catch (e) {
     document.getElementById('msg').textContent = '提交失败: ' + e;
   }
+}
+
+// ================= 综述工作台 =================
+const sv = { topic: '', outline: [], curSection: null };
+const svMsg = (t) => { document.getElementById('sv-msg').textContent = t; };
+
+function svTopic() {
+  const t = document.getElementById('sv-topic').value.trim();
+  if (!t) { svMsg('请先输入综述主题'); return null; }
+  sv.topic = t;
+  return t;
+}
+
+function svRenderOutline() {
+  const box = document.getElementById('sv-outline');
+  if (!sv.outline.length) { box.innerHTML = ''; return; }
+  box.innerHTML = sv.outline.map((s, i) => `<div class="row" style="margin:4px 0">
+    <input value="${s.title.replace(/"/g, '&quot;')}" oninput="sv.outline[${i}].title=this.value" style="flex:1;padding:4px;border:1px solid #ccc;border-radius:4px">
+    <button class="small" onclick="svMove(${i},-1)">↑</button>
+    <button class="small" onclick="svMove(${i},1)">↓</button>
+    <button class="small" onclick="svDel(${i})">✕</button></div>`).join('');
+}
+
+async function svGenerateOutline() {
+  const t = svTopic(); if (!t) return;
+  svMsg('生成大纲中（检索 + LLM，约 10~30 秒）...');
+  try {
+    const r = await window.pywebview.api.survey_outline(t);
+    if (r && r.ok) { sv.outline = r.sections || []; svRenderOutline(); svMsg('大纲已生成，可编辑后保存'); }
+    else svMsg('失败: ' + ((r && r.error) || '未知'));
+  } catch (e) { svMsg('调用失败: ' + e); }
+}
+
+function svAddSection() {
+  if (!sv.topic) { svMsg('请先输入主题'); return; }
+  sv.outline.push({ title: '新节', keywords: [] });
+  svRenderOutline();
+}
+
+function svMove(i, d) {
+  const j = i + d;
+  if (j < 0 || j >= sv.outline.length) return;
+  [sv.outline[i], sv.outline[j]] = [sv.outline[j], sv.outline[i]];
+  svRenderOutline();
+}
+
+function svDel(i) { sv.outline.splice(i, 1); svRenderOutline(); }
+
+async function svSaveOutline() {
+  const t = svTopic(); if (!t) return;
+  if (!sv.outline.length) { svMsg('大纲为空'); return; }
+  svMsg('保存大纲中...');
+  try {
+    const r = await window.pywebview.api.survey_outline(t, sv.outline);
+    svMsg(r && r.ok ? '大纲已保存（手动模式）' : '失败: ' + ((r && r.error) || ''));
+  } catch (e) { svMsg('调用失败: ' + e); }
+}
+
+async function svDraft() {
+  const t = svTopic(); if (!t) return;
+  svMsg('逐节生成草稿中（每节约 20~40 秒，已生成节自动跳过）...');
+  try {
+    const r = await window.pywebview.api.survey_draft(t);
+    if (r && r.ok) { svMsg(`草稿完成：${r.sections} 节 / ${r.total_chars} 字 / ${r.refs} 条引用`); svRefreshDraft(); }
+    else svMsg('失败: ' + ((r && r.error) || '未知'));
+  } catch (e) { svMsg('调用失败: ' + e); }
+}
+
+async function svRefreshDraft() {
+  const t = sv.topic; if (!t) return;
+  try {
+    const r = await window.pywebview.api.survey_status(t);
+    if (!r || !r.ok) return;
+    const box = document.getElementById('sv-draft');
+    const secs = r.sections || [];
+    if (!secs.length) { box.innerHTML = ''; return; }
+    box.innerHTML = secs.map((s, i) => `<div class="row" style="margin:3px 0">
+      <span style="flex:1;font-size:12px">${s.title}（${s.chars}字）</span>
+      <button class="small" onclick="svView(${i})">查看</button>
+      <button class="small" onclick="svRewrite(${i})">重写</button>
+      <button class="small" onclick="svEdit(${i})">编辑</button></div>`).join('');
+    sv.draftSecs = secs;
+  } catch (e) {}
+}
+
+async function svView(i) {
+  const t = sv.topic, sec = sv.draftSecs[i]; if (!sec) return;
+  try {
+    const r = await window.pywebview.api.survey_section(t, sec.title);
+    if (r && r.ok) {
+      sv.curSection = sec.title;
+      document.getElementById('sv-body').value = r.body || '';
+      document.getElementById('sv-body-wrap').style.display = 'block';
+      svMsg('当前节：' + sec.title);
+    } else svMsg('失败: ' + ((r && r.error) || ''));
+  } catch (e) { svMsg('调用失败: ' + e); }
+}
+
+async function svRewrite(i) {
+  const t = sv.topic, sec = sv.draftSecs[i]; if (!sec) return;
+  const ins = prompt('修改指令（如：深入对比深度学习与传统方法的优缺点 / 缩短到200字）', '更学术化、更深入');
+  if (!ins) return;
+  svMsg('重写中（约 20~40 秒）...');
+  try {
+    const r = await window.pywebview.api.survey_rewrite(t, sec.title, ins);
+    if (r && r.ok) { svMsg('已重写：' + r.title); svRefreshDraft(); }
+    else svMsg('失败: ' + ((r && r.error) || ''));
+  } catch (e) { svMsg('调用失败: ' + e); }
+}
+
+async function svEdit(i) { await svView(i); svMsg('直接修改下方文本，点「保存此节」覆盖'); }
+
+async function svSaveBody() {
+  if (!sv.curSection) return;
+  svMsg('保存中...');
+  try {
+    const r = await window.pywebview.api.survey_edit(sv.topic, sv.curSection, document.getElementById('sv-body').value);
+    svMsg(r && r.ok ? '已保存：' + r.title : '失败: ' + ((r && r.error) || ''));
+    svRefreshDraft();
+  } catch (e) { svMsg('调用失败: ' + e); }
+}
+
+async function svExport() {
+  const t = svTopic(); if (!t) return;
+  svMsg('导出中...');
+  try {
+    const r = await window.pywebview.api.survey_export(t);
+    svMsg(r && r.ok ? '已导出: ' + r.path : '失败: ' + ((r && r.error) || ''));
+  } catch (e) { svMsg('调用失败: ' + e); }
 }
 
 refresh();

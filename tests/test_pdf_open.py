@@ -20,8 +20,8 @@ def test_resolve_pdf_path_exact(work_tmp):
     assert resolve_pdf_path("论文乙.pdf", [work_tmp]) == sub_target
 
 
-def test_resolve_pdf_path_missing(work_tmp):
-    assert resolve_pdf_path("不存在.pdf", [os.path.join(work_tmp, "nope")]) is None
+def test_resolve_pdf_path_missing():
+    assert resolve_pdf_path("不存在.pdf", [r"E:\file\agent\definitely-not-exist"]) is None
 
 
 def test_tokenize_finance_terms():
