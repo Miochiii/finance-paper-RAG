@@ -303,7 +303,8 @@ def _add_rich_paragraph(p, text: str, ref_map: Dict[int, Tuple[str, str]], fmt: 
 
 
 def _add_heading_para(doc, level: int, text: str, spec: Dict):
-    """标题段落：序号与题名间空两个字符，序号用西文字体（Times New Roman）。
+    """标题段落：序号与题名直连（不插全角空格，避免部分 Word 渲染成方块），
+    序号用西文字体（Times New Roman）。
     run 级显式设置字体（双保险：样式层的主题字体可能覆盖样式属性）。"""
     p = doc.add_paragraph(style=f"Heading {level}")
     t = text.strip()
@@ -312,7 +313,7 @@ def _add_heading_para(doc, level: int, text: str, spec: Dict):
         r1 = p.add_run(m.group(1))
         _set_run_font(r1, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
                       spec.get("size_pt", 16), spec.get("bold", True))
-        r2 = p.add_run("　　" + m.group(2))  # 两个全角空格
+        r2 = p.add_run(m.group(2))  # 序号与题名直连（U+3000 全角空格在部分环境显示为方块）
         _set_run_font(r2, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
                       spec.get("size_pt", 16), spec.get("bold", True))
     else:

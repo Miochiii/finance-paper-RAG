@@ -120,13 +120,14 @@ class TestThesisFormatting:
         assert "中南财经政法大学硕士学位论文" in sec.header.paragraphs[0].text
         assert "PAGE" in sec.footer.paragraphs[0]._p.xml  # 页码域
 
-    def test_heading_number_split_two_char_gap(self, work_tmp):
+    def test_heading_number_split_no_gap(self, work_tmp):
         doc = _write_and_read(work_tmp, "## 1 引言\n\n正文。", ref_map=REF_MAP)
         para = next(p for p in doc.paragraphs if "引言" in p.text)
         runs = para.runs
         assert runs[0].text == "1"
         assert runs[0].font.name == "Times New Roman"   # 序号用西文字体
-        assert runs[1].text == "　　" + "引言"           # 两个全角空格
+        assert runs[1].text == "引言"                    # 序号与题名直连（无全角空格）
+        assert "\u3000" not in para.text
         # run 级中文字体显式生效（回归：主题字体 MS Gothic 覆盖问题）
         rPr2 = runs[1]._element.get_or_add_rPr()
         rfonts2 = rPr2.find(qn("w:rFonts"))
