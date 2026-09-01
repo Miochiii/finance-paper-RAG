@@ -3,22 +3,27 @@
 rag_server.py —— 一体化本地 RAG 服务（HTTP API + MCP 双协议，单进程）
 
 一个进程同时提供：
-  - HTTP API（脚本 / 桌面面板 / 综述编辑器调用）：
-      GET  /health /stats /editor /survey/status /survey/section /survey/editor_data
-      POST /build /search /ask /open /ingest /direction/analyze /direction/compare
-           /survey/outline /survey/draft /survey/rewrite /survey/edit /survey/export
-           /survey/rewrite_selection /survey/editor_save
-  - MCP 端点（DeepSeek Harness 注册工具）：/mcp，15 个工具
-    （search / stats / build / ingest / ask / open_doc / direction_analyze /
-      direction_compare / survey_outline / survey_draft / survey_rewrite /
-      survey_edit / survey_section / survey_status / survey_export，
-      DSH 中为 mcp__rag__*）
+  - HTTP API（脚本 / 桌面面板调用）：GET /health /stats；POST /build /search /ask /open /ingest
+                              POST /direction/analyze /direction/compare
+  - MCP 端点（DeepSeek Harness 注册工具）：/mcp
+    （工具：search / stats / build / ingest / ask / open_doc / direction_analyze / direction_compare，
+     DSH 中为 mcp__rag__*）
 
 单进程设计保证 qdrant 本地存储锁唯一持有者——不要再同时启动其他会加载
-检索器的进程。
+检索器的进程（原 8001 的 rag_mcp_server.py 已退役，见该文件说明）。
 
 启动：python -m uvicorn rag_server:app --host 127.0.0.1 --port 8000
       （或双击 启动RAG服务.bat）
+
+接口：
+  HTTP  GET  /health                         环境自检
+  HTTP  GET  /stats                          知识库统计（含运行统计 obs）
+  HTTP  POST /build   {chunker, clear}       重建知识库（MinerU 输出 + docx 文档）
+  HTTP  POST /search  {query, top_k}         纯检索（返回块 + 来源，不生成）
+  HTTP  POST /ask     {question, top_k, deep} 检索 + 生成（带引用）
+  HTTP  POST /open    {doc, page}            打开原始 PDF 指定页
+  HTTP  POST /ingest  {}                     增量入库（只处理新增文档）
+  MCP   /mcp                                 同一批功能的 MCP 工具（供 DSH 注册）
 """
 
 import hashlib
@@ -168,6 +173,13 @@ class EditorSaveReq(BaseModel):
     topic: str
     text: str
     filename: str = ""             # 空=覆盖默认导出文件；非空=另存为（白名单校验）
+
+
+class EditorDocxReq(BaseModel):
+    topic: str
+    text: str = None               # 编辑器当前文本；缺省加载已导出 Markdown
+    citation_format: str = "author_year"   # author_year=著者-年份；superscript=上标编号
+    include_refs: bool = False     # 是否附生成的参考文献列表（默认不附，正式引用走知网）
 
 
 # ---- 全局状态（懒加载：health 秒回，不碰 GPU）----
@@ -844,6 +856,29 @@ def survey_editor_save_http(req: EditorSaveReq):
         return survey_editor_save(req.topic, req.text, req.filename)
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+@app.post("/survey/export_docx")
+def survey_export_docx_http(req: EditorDocxReq):
+    from rag_core.survey import survey_export_docx
+    try:
+        return survey_export_docx(req.topic, req.text,
+                                  citation_format=req.citation_format,
+                                  include_refs=req.include_refs)
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/survey/download")
+def survey_download_http(topic: str, filename: str):
+    """下载导出文件（md/markdown/docx；文件名白名单防路径穿越）。"""
+    from fastapi.responses import FileResponse
+    from rag_core.survey import survey_download_path
+    p = survey_download_path(topic, filename)
+    if not p:
+        return {"ok": False, "error": "文件名不合法或文件不存在"}
+    return FileResponse(p, media_type="application/octet-stream",
+                        filename=os.path.basename(p))
 
 
 # ================= MCP 工具（挂载到 /mcp，供 DSH 注册） =================

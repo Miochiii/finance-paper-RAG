@@ -157,3 +157,11 @@ def test_editor_save_route_registered_and_validation():
     req = core.EditorSaveReq(topic="不存在主题-xyz-123", text="x")
     r = core.survey_editor_save_http(req)
     assert r["ok"] is False  # 无草稿：不落盘直接报错
+
+
+def test_docx_routes_registered_and_validation():
+    paths = [getattr(r, "path", "") for r in core.app.routes]
+    assert "/survey/export_docx" in paths and "/survey/download" in paths
+    req = core.EditorDocxReq(topic="不存在主题-xyz-123", text="正文")
+    r = core.survey_export_docx_http(req)
+    assert r["ok"] is False  # 无草稿：不生成文件直接报错

@@ -469,6 +469,23 @@ def survey_export(topic: str, format: str = "markdown") -> Dict:
         lines.append(f"[{mapping[n]}] {author}. {_title_of(r)}（{year}）{page_txt}")
     out_dir = os.path.join(d, "exports")
     os.makedirs(out_dir, exist_ok=True)
+
+    # 落盘编号顺序侧车（docx 著者-年份转换的兜底映射：N → 来源序号）
+    try:
+        _save_json(os.path.join(out_dir, f"{_slugify(topic)}.map.json"), {"order": order})
+    except OSError:
+        pass
+
+    if format == "docx":
+        from rag_core.md_docx import md_to_docx, extract_ref_map
+        full_text = "\n".join(lines) + "\n"
+        out_path = os.path.join(out_dir, f"{_slugify(topic)}.docx")
+        md_to_docx(full_text, out_path, topic.strip(),
+                   citation_format="author_year", include_refs=False,
+                   ref_map=extract_ref_map(full_text))
+        return {"ok": True, "topic": topic, "format": format, "path": out_path,
+                "refs": len(order), "citation_format": "author_year"}
+
     out_path = os.path.join(out_dir, f"{_slugify(topic)}.{format}")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -616,3 +633,66 @@ def survey_editor_save(topic: str, text: str, filename: str = "") -> Dict:
     os.replace(tmp, out_path)
     return {"ok": True, "topic": topic.strip(), "path": out_path,
             "filename": os.path.basename(out_path), "chars": len(text)}
+
+
+_DOWNLOAD_NAME_RE = re.compile(r"[\w\u4e00-\u9fa5.\- ]{1,80}\.(md|markdown|docx)")
+
+
+def survey_export_docx(topic: str, text: str = None,
+                       citation_format: str = "author_year",
+                       include_refs: bool = False) -> Dict:
+    """导出 Word（引用格式由用户选择）：
+    - citation_format: "author_year"（[1] → （作者，年份），默认）/
+                       "superscript"（[1] 保持数字引用并渲染为 Word 上标）；
+    - include_refs: 是否在文末附生成的参考文献列表（默认不附，正式引用走知网）；
+    - text: 编辑器当前文本（未保存的改动也生效）；缺省加载已导出的 Markdown。
+    产物：exports/<slug>_著者年份.docx / <slug>_上标编号.docx。"""
+    from rag_core.md_docx import md_to_docx, extract_ref_map
+
+    if citation_format not in ("superscript", "author_year"):
+        return {"ok": False, "error": "未知引用格式（可选 superscript / author_year）"}
+    d = _survey_dir(topic)
+    if not os.path.isfile(os.path.join(d, "draft.md")):
+        return {"ok": False, "error": "草稿不存在，请先 survey_draft"}
+
+    if text is None or not str(text).strip():
+        ed = survey_editor_data(topic)
+        if not ed.get("ok"):
+            return {"ok": False, "error": ed.get("error", "加载草稿失败")}
+        text = ed["text"]
+    text = str(text)
+
+    # 编号 → (作者, 年份)：优先从文末参考文献列表解析（编辑稿编号也能对上）
+    ref_map = extract_ref_map(text)
+    if not ref_map:
+        # 兜底：导出侧车 map.json + refs.json
+        sidecar = os.path.join(d, "exports", f"{_slugify(topic)}.map.json")
+        order = _load_json(sidecar, {}).get("order", []) if os.path.isfile(sidecar) else []
+        refs = _load_refs(d)
+        for n, idx in enumerate(order, start=1):
+            if 0 < idx <= len(refs):
+                r = refs[idx - 1]
+                ref_map[n] = (r.get("author") or "佚名", str(r.get("year") or ""))
+
+    suffix = {"superscript": "上标编号", "author_year": "著者年份"}[citation_format]
+    out_dir = os.path.join(d, "exports")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, f"{_slugify(topic)}_{suffix}.docx")
+    md_to_docx(text, out_path, topic.strip(), citation_format=citation_format,
+               include_refs=include_refs, ref_map=ref_map)
+    return {"ok": True, "topic": topic.strip(), "format": "docx",
+            "citation_format": citation_format, "include_refs": include_refs,
+            "path": out_path, "filename": os.path.basename(out_path)}
+
+
+def survey_download_path(topic: str, filename: str) -> Optional[str]:
+    """下载白名单：返回 exports 目录内合法文件的绝对路径；非法/不存在返回 None。"""
+    if not filename or not _DOWNLOAD_NAME_RE.fullmatch(str(filename).strip()):
+        return None
+    d = _survey_dir(topic)
+    out_dir = os.path.join(d, "exports")
+    name = str(filename).strip()
+    p = os.path.join(out_dir, name)
+    if os.path.abspath(p) != os.path.join(os.path.abspath(out_dir), name):
+        return None
+    return p if os.path.isfile(p) else None
