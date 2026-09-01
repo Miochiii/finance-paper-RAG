@@ -46,10 +46,13 @@
   #toast { position: fixed; left: 50%; bottom: 48px; transform: translateX(-50%); background: rgba(35,39,46,.92); color: #fff; padding: 8px 18px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 9; }
   #toast.show { opacity: 1; }
   #dlg-mask { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 20; }
-  #dlg { background: #fff; border-radius: 10px; padding: 20px 24px; width: 400px; box-shadow: 0 8px 30px rgba(0,0,0,.2); }
+  #dlg { background: #fff; border-radius: 10px; padding: 20px 24px; width: 520px; max-height: 86vh; overflow-y: auto; box-shadow: 0 8px 30px rgba(0,0,0,.2); }
   #dlg h3 { margin: 0 0 12px; font-size: 15px; }
-  #dlg .row { margin: 10px 0; display: flex; gap: 8px; align-items: center; font-size: 14px; flex-wrap: wrap; }
+  #dlg .row { margin: 8px 0; display: flex; gap: 8px; align-items: center; font-size: 13px; flex-wrap: wrap; }
   #dlg label { cursor: pointer; }
+  #dlg select, #dlg input[type=text], #dlg input[type=number] { border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; font-size: 13px; background: #fff; }
+  #dlg input[type=number] { width: 56px; }
+  #dlg .sep { border-top: 1px dashed var(--line); margin: 12px 0 6px; }
   #dlg .actions { margin-top: 16px; display: flex; gap: 10px; justify-content: flex-end; }
   #dlg-result { margin-top: 10px; font-size: 13px; color: var(--accent); word-break: break-all; }
   #err { padding: 40px; text-align: center; color: #c0392b; }
@@ -107,6 +110,46 @@
     <div class="row"><label><input type="radio" name="citefmt" value="author_year" checked> 著者-年份： [1] → （作者，年份）</label></div>
     <div class="row"><label><input type="radio" name="citefmt" value="superscript"> 上标编号： [1] 转为 Word 上标</label></div>
     <div class="row"><label><input type="checkbox" id="dlg-refs"> 文末附生成的参考文献列表（默认不附，正式引用走知网）</label></div>
+
+    <div class="sep"></div>
+    <div class="row"><b>正文格式</b>（默认：宋体小四 / Times New Roman，1.5 倍行距，首行缩进 2 字符）</div>
+    <div class="row">
+      中文字体 <select id="f-body-cn"><option>宋体</option><option>黑体</option><option>仿宋</option><option>楷体</option></select>
+      西文字体 <select id="f-body-en"><option>Times New Roman</option><option>Arial</option></select>
+      字号 <select id="f-body-size"><option value="12">小四(12)</option><option value="10.5">五号(10.5)</option><option value="14">四号(14)</option><option value="16">三号(16)</option></select>
+    </div>
+    <div class="row">
+      行距 <select id="f-body-ls"><option value="1.5">1.5 倍</option><option value="1">单倍</option><option value="1.25">1.25 倍</option></select>
+      首行缩进 <select id="f-body-indent"><option value="2">2 字符</option><option value="0">无</option></select>
+    </div>
+
+    <div class="sep"></div>
+    <div class="row"><b>标题格式</b>（一/二/三级）</div>
+    <div class="row">
+      一级 <select id="f-h1-cn"><option>黑体</option><option>宋体</option></select>
+      <select id="f-h1-size"><option value="16">三号(16)</option><option value="15">小三(15)</option><option value="14">四号(14)</option></select>
+      <select id="f-h1-align"><option value="center">居中</option><option value="left">居左</option></select>
+    </div>
+    <div class="row">
+      二级 <select id="f-h2-cn"><option>黑体</option><option>宋体</option></select>
+      <select id="f-h2-size"><option value="15">小三(15)</option><option value="16">三号(16)</option><option value="14">四号(14)</option></select>
+      <select id="f-h2-align"><option value="left">居左</option><option value="center">居中</option></select>
+    </div>
+    <div class="row">
+      三级 <select id="f-h3-cn"><option>宋体</option><option>黑体</option></select>
+      <select id="f-h3-size"><option value="14">四号(14)</option><option value="12">小四(12)</option><option value="15">小三(15)</option></select>
+      <select id="f-h3-align"><option value="left">居左</option><option value="center">居中</option></select>
+    </div>
+
+    <div class="sep"></div>
+    <div class="row"><b>页面设置</b>（默认：上/左 30mm，下/右 25mm，页脚居中页码）</div>
+    <div class="row">
+      页边距(mm) 上<input type="number" id="f-mt" value="30"> 下<input type="number" id="f-mb" value="25">
+      左<input type="number" id="f-ml" value="30"> 右<input type="number" id="f-mr" value="25">
+    </div>
+    <div class="row">页眉文字 <input type="text" id="f-header" value="中南财经政法大学硕士学位论文" style="flex:1"></div>
+    <div class="row"><label><input type="checkbox" id="f-pageno" checked> 页脚居中页码（小五 Times New Roman）</label></div>
+
     <div class="actions">
       <button class="btn" id="dlg-cancel">取消</button>
       <button class="btn primary" id="dlg-export">导出</button>
@@ -363,13 +406,36 @@
     var checked = document.querySelector('input[name=citefmt]:checked');
     var fmt = (checked && checked.value) || 'author_year';
     var incRefs = document.getElementById('dlg-refs').checked;
+    function val(id) { return document.getElementById(id).value; }
+    function num(id) { var v = parseFloat(val(id)); return isNaN(v) ? null : v; }
+    var fmtOptions = {
+      body: {
+        cn_font: val('f-body-cn'),
+        en_font: val('f-body-en'),
+        size_pt: parseFloat(val('f-body-size')),
+        line_spacing: parseFloat(val('f-body-ls')),
+        first_line_chars: parseInt(val('f-body-indent'), 10)
+      },
+      h1: { cn_font: val('f-h1-cn'), size_pt: parseFloat(val('f-h1-size')), align: val('f-h1-align') },
+      h2: { cn_font: val('f-h2-cn'), size_pt: parseFloat(val('f-h2-size')), align: val('f-h2-align') },
+      h3: { cn_font: val('f-h3-cn'), size_pt: parseFloat(val('f-h3-size')), align: val('f-h3-align') },
+      page: {
+        top_mm: num('f-mt'), bottom_mm: num('f-mb'),
+        left_mm: num('f-ml'), right_mm: num('f-mr'),
+        header_text: val('f-header'),
+        page_number: document.getElementById('f-pageno').checked
+      }
+    };
+    for (var pk in fmtOptions.page) {
+      if (fmtOptions.page[pk] === null) delete fmtOptions.page[pk];
+    }
     var btn = this;
     btn.disabled = true;
     btn.textContent = '导出中…';
     fetch('/survey/export_docx', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topic: topic, text: ta.value, citation_format: fmt, include_refs: incRefs })
+      body: JSON.stringify({ topic: topic, text: ta.value, citation_format: fmt, include_refs: incRefs, fmt_options: fmtOptions })
     }).then(function (r) { return r.json(); })
       .then(function (d) {
         if (!d.ok) { toast(d.error || '导出失败'); return; }

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """交互式综述生成（第一期）：大纲协商 → 分段生成（先检索后写作、引用可溯源）
 → 局部重写 / 手动编辑 → 状态查询 → Markdown 导出。
 
@@ -17,7 +17,6 @@ import re
 from typing import Dict, List, Optional
 
 from rag_core.config import KB_FILE as KB_FILE_DEFAULT
-
 SURVEY_DIR = os.getenv(
     "RAG_SURVEY_DIR",
     os.path.join(os.path.dirname(KB_FILE_DEFAULT), "surveys"),
@@ -640,11 +639,14 @@ _DOWNLOAD_NAME_RE = re.compile(r"[\w\u4e00-\u9fa5.\- ]{1,80}\.(md|markdown|docx)
 
 def survey_export_docx(topic: str, text: str = None,
                        citation_format: str = "author_year",
-                       include_refs: bool = False) -> Dict:
-    """导出 Word（引用格式由用户选择）：
+                       include_refs: bool = False,
+                       fmt_options: dict = None) -> Dict:
+    """导出 Word（引用格式与排版由用户选择）：
     - citation_format: "author_year"（[1] → （作者，年份），默认）/
                        "superscript"（[1] 保持数字引用并渲染为 Word 上标）；
     - include_refs: 是否在文末附生成的参考文献列表（默认不附，正式引用走知网）；
+    - fmt_options: 排版覆盖（正文/标题字体字号、段落格式、页边距、页眉页码），
+      按 md_docx.DEFAULT_STYLE 分组浅合并，未提供的项用论文格式默认值；
     - text: 编辑器当前文本（未保存的改动也生效）；缺省加载已导出的 Markdown。
     产物：exports/<slug>_著者年份.docx / <slug>_上标编号.docx。"""
     from rag_core.md_docx import md_to_docx, extract_ref_map
@@ -679,7 +681,7 @@ def survey_export_docx(topic: str, text: str = None,
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{_slugify(topic)}_{suffix}.docx")
     md_to_docx(text, out_path, topic.strip(), citation_format=citation_format,
-               include_refs=include_refs, ref_map=ref_map)
+               include_refs=include_refs, ref_map=ref_map, style=fmt_options)
     return {"ok": True, "topic": topic.strip(), "format": "docx",
             "citation_format": citation_format, "include_refs": include_refs,
             "path": out_path, "filename": os.path.basename(out_path)}

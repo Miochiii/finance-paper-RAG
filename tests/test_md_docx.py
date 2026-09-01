@@ -5,6 +5,8 @@ import os
 import rag_core.md_docx as M
 import rag_core.survey as sv
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 
 
 def _use_tmp(monkeypatch, work_tmp):
@@ -59,7 +61,7 @@ class TestMdToDocx:
         doc = _write_and_read(work_tmp, "## 1 引言\n\n这是**加粗**的内容[1]。",
                               ref_map=REF_MAP, citation_format="author_year")
         texts = [p.text for p in doc.paragraphs]
-        assert any("1 引言" in t for t in texts)
+        assert any("引言" in t for t in texts)
         assert any("（李安哲，2022）" in t for t in texts)
         assert any(r.bold for p in doc.paragraphs for r in p.runs)
 
@@ -80,6 +82,66 @@ class TestMdToDocx:
                               citation_format="author_year", include_refs=True)
         joined = "\n".join(p.text for p in doc.paragraphs)
         assert "参考文献" in joined and "李安哲. 标题（2022）" in joined
+
+
+class TestThesisFormatting:
+    """论文排版（中南财经政法大学格式默认值）断言。"""
+
+    def test_body_style(self, work_tmp):
+        doc = _write_and_read(work_tmp, "正文段落。", ref_map=REF_MAP)
+        st = doc.styles["Normal"]
+        rfonts = st.element.rPr.rFonts
+        assert rfonts.get(qn("w:eastAsia")) == "宋体"
+        assert rfonts.get(qn("w:ascii")) == "Times New Roman"
+        assert st.font.size.pt == 12
+        # 首行缩进 2 字符 + 1.5 倍行距
+        assert st.element.pPr.ind.get(qn("w:firstLineChars")) == "200"
+        assert st.element.pPr.spacing.get(qn("w:line")) == "360"
+
+    def test_heading_styles(self, work_tmp):
+        doc = _write_and_read(work_tmp, "正文。", ref_map=REF_MAP)
+        h1 = doc.styles["Heading 1"]
+        assert h1.element.rPr.rFonts.get(qn("w:eastAsia")) == "黑体"
+        assert h1.font.size.pt == 16 and h1.font.bold is True
+        assert h1.paragraph_format.alignment == WD_ALIGN_PARAGRAPH.CENTER
+        assert h1.element.pPr.spacing.get(qn("w:before")) == "480"   # 段前 24 磅
+        assert h1.element.pPr.spacing.get(qn("w:after")) == "360"    # 段后 18 磅
+        h2 = doc.styles["Heading 2"]
+        assert h2.font.size.pt == 15 and h2.paragraph_format.alignment == WD_ALIGN_PARAGRAPH.LEFT
+        h3 = doc.styles["Heading 3"]
+        assert h3.font.size.pt == 14 and h3.font.bold is True
+
+    def test_page_setup_header_footer(self, work_tmp):
+        doc = _write_and_read(work_tmp, "正文。", ref_map=REF_MAP)
+        sec = doc.sections[0]
+        assert round(sec.page_width.mm) == 210 and round(sec.page_height.mm) == 297
+        assert round(sec.top_margin.mm) == 30 and round(sec.left_margin.mm) == 30
+        assert round(sec.bottom_margin.mm) == 25 and round(sec.right_margin.mm) == 25
+        assert "中南财经政法大学硕士学位论文" in sec.header.paragraphs[0].text
+        assert "PAGE" in sec.footer.paragraphs[0]._p.xml  # 页码域
+
+    def test_heading_number_split_two_char_gap(self, work_tmp):
+        doc = _write_and_read(work_tmp, "## 1 引言\n\n正文。", ref_map=REF_MAP)
+        para = next(p for p in doc.paragraphs if "引言" in p.text)
+        runs = para.runs
+        assert runs[0].text == "1"
+        assert runs[0].font.name == "Times New Roman"   # 序号用西文字体
+        assert runs[1].text == "　　" + "引言"           # 两个全角空格
+
+    def test_custom_style_override(self, work_tmp):
+        doc = _write_and_read(work_tmp, "正文。", ref_map=REF_MAP,
+                              style={"body": {"cn_font": "仿宋", "size_pt": 14}})
+        st = doc.styles["Normal"]
+        assert st.element.rPr.rFonts.get(qn("w:eastAsia")) == "仿宋"
+        assert st.font.size.pt == 14
+        # 未覆盖的组保持默认
+        assert doc.styles["Heading 1"].font.size.pt == 16
+
+    def test_table_cell_font(self, work_tmp):
+        doc = _write_and_read(work_tmp, "| 指标 | 值 |\n|---|---|\n| A | 1 |", ref_map=REF_MAP)
+        cell = doc.tables[0].cell(0, 0)
+        r = cell.paragraphs[0].runs[0]
+        assert r.font.size.pt == 10.5  # 五号
 
 
 class TestSurveyExportDocx:

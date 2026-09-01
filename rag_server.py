@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 rag_server.py —— 一体化本地 RAG 服务（HTTP API + MCP 双协议，单进程）
 
@@ -40,15 +40,18 @@ from pydantic import BaseModel
 
 # ---- 路径（集中配置见 rag_core/config.py，可用环境变量 / .env 覆盖）----
 from rag_core import config  # noqa: E402
-
 KB_FILE = config.KB_FILE
 VECTOR_DB_PATH = config.VECTOR_DB_PATH
 MINERU_OUT = config.MINERU_OUT
 DOCS_DIR = config.DOCS_DIR
-PDF_SOURCE_DIRS = config.PDF_SOURCE_DIRS
+# 原始 PDF/docx 搜索目录（按文件名定位；环境变量 PDF_SOURCE_DIRS 用 ; 分隔追加）
+PDF_SOURCE_DIRS = [d for d in (
+    [x.strip() for x in os.getenv("PDF_SOURCE_DIRS", "").split(";") if x.strip()]
+    + [DOCS_DIR, os.path.join(os.path.dirname(MINERU_OUT), "input")]
+) if d]
 # 引用链接基地址（DSH 前端只渲染 http/https 链接，自定义协议会被丢弃；
 # 环境变量 RAG_LINK_BASE 可在 DSH 端口变化时覆盖）
-RAG_LINK_BASE = config.RAG_LINK_BASE
+RAG_LINK_BASE = os.getenv("RAG_LINK_BASE", "http://127.0.0.1:3080/dsh-rag/open")
 # 综述编辑器页面地址（浏览器新标签页；环境变量 RAG_EDITOR_BASE 可在端口变化时覆盖）
 EDITOR_BASE = os.getenv("RAG_EDITOR_BASE", "http://127.0.0.1:8000/editor")
 EDITOR_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor.html")
@@ -180,6 +183,7 @@ class EditorDocxReq(BaseModel):
     text: str = None               # 编辑器当前文本；缺省加载已导出 Markdown
     citation_format: str = "author_year"   # author_year=著者-年份；superscript=上标编号
     include_refs: bool = False     # 是否附生成的参考文献列表（默认不附，正式引用走知网）
+    fmt_options: dict = None       # 排版覆盖：正文/标题字体字号、段落、页边距、页眉页码
 
 
 # ---- 全局状态（懒加载：health 秒回，不碰 GPU）----
@@ -864,7 +868,8 @@ def survey_export_docx_http(req: EditorDocxReq):
     try:
         return survey_export_docx(req.topic, req.text,
                                   citation_format=req.citation_format,
-                                  include_refs=req.include_refs)
+                                  include_refs=req.include_refs,
+                                  fmt_options=req.fmt_options)
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
