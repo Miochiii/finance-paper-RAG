@@ -127,6 +127,19 @@ class TestThesisFormatting:
         assert runs[0].text == "1"
         assert runs[0].font.name == "Times New Roman"   # 序号用西文字体
         assert runs[1].text == "　　" + "引言"           # 两个全角空格
+        # run 级中文字体显式生效（回归：主题字体 MS Gothic 覆盖问题）
+        rPr2 = runs[1]._element.get_or_add_rPr()
+        rfonts2 = rPr2.find(qn("w:rFonts"))
+        assert rfonts2 is not None and rfonts2.get(qn("w:eastAsia")) == "黑体"
+
+    def test_heading_styles_have_no_theme_fonts(self, work_tmp):
+        """回归：样式 rFonts 不得残留主题字体引用（asciiTheme/eastAsiaTheme），
+        否则 Word 优先用主题字体（默认回退 MS Gothic），显式字体不生效。"""
+        doc = _write_and_read(work_tmp, "正文。", ref_map=REF_MAP)
+        for name in ("Normal", "Heading 1", "Heading 2", "Heading 3"):
+            rf = doc.styles[name].element.rPr.rFonts
+            for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+                assert qn(attr) not in rf.attrib, f"{name} 残留 {attr}"
 
     def test_custom_style_override(self, work_tmp):
         doc = _write_and_read(work_tmp, "正文。", ref_map=REF_MAP,

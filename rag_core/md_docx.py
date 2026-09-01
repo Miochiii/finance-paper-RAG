@@ -220,6 +220,11 @@ def _setup_style(doc, style_name: str, spec: Dict):
     if rFonts is None:
         rFonts = OxmlElement("w:rFonts")
         rPr.append(rFonts)
+    # 关键：清掉模板的主题字体引用（asciiTheme/eastAsiaTheme 等），
+    # 否则 Word 优先用主题字体（默认回退 MS Gothic），显式字体不生效
+    for attr in ("w:asciiTheme", "w:hAnsiTheme", "w:eastAsiaTheme", "w:cstheme"):
+        if rFonts.get(qn(attr)) is not None:
+            del rFonts.attrib[qn(attr)]
     rFonts.set(qn("w:ascii"), spec.get("en_font", "Times New Roman"))
     rFonts.set(qn("w:hAnsi"), spec.get("en_font", "Times New Roman"))
     rFonts.set(qn("w:eastAsia"), spec.get("cn_font", "宋体"))
@@ -298,16 +303,22 @@ def _add_rich_paragraph(p, text: str, ref_map: Dict[int, Tuple[str, str]], fmt: 
 
 
 def _add_heading_para(doc, level: int, text: str, spec: Dict):
-    """标题段落：序号与题名间空两个字符，序号用西文字体（Times New Roman）。"""
+    """标题段落：序号与题名间空两个字符，序号用西文字体（Times New Roman）。
+    run 级显式设置字体（双保险：样式层的主题字体可能覆盖样式属性）。"""
     p = doc.add_paragraph(style=f"Heading {level}")
     t = text.strip()
     m = _HEAD_NUM_RE.match(t)
     if m:
         r1 = p.add_run(m.group(1))
-        r1.font.name = spec.get("en_font", "Times New Roman")
-        p.add_run("　　" + m.group(2))  # 两个全角空格
+        _set_run_font(r1, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
+                      spec.get("size_pt", 16), spec.get("bold", True))
+        r2 = p.add_run("　　" + m.group(2))  # 两个全角空格
+        _set_run_font(r2, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
+                      spec.get("size_pt", 16), spec.get("bold", True))
     else:
-        p.add_run(t)
+        r = p.add_run(t)
+        _set_run_font(r, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
+                      spec.get("size_pt", 16), spec.get("bold", True))
     return p
 
 
@@ -341,7 +352,7 @@ def md_to_docx(text: str, out_path: str, title: str = "",
         p = doc.add_paragraph(style="Heading 1")
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         r = p.add_run(title)
-        r.font.size = Pt(18)  # 小二，文档题名
+        _set_run_font(r, "黑体", "Times New Roman", 18, True)  # 小二加粗，文档题名
 
     ref_map = ref_map or {}
     lines = text.replace("\r\n", "\n").split("\n")
