@@ -679,7 +679,9 @@ def open_doc_kb(doc: str, page: int = 1) -> dict:
         from rag_core.knowledge_base import KnowledgeBase
         for c in KnowledgeBase(KB_FILE).load():
             if c.get("source") == doc and c.get("pdf_path"):
-                pdf_path = c["pdf_path"]
+                cand = c["pdf_path"]
+                if os.path.isfile(cand):   # 过期路径不再直接使用
+                    pdf_path = cand
                 break
     except Exception:
         pass

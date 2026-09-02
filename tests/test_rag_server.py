@@ -165,3 +165,24 @@ def test_docx_routes_registered_and_validation():
     req = core.EditorDocxReq(topic="不存在主题-xyz-123", text="正文")
     r = core.survey_export_docx_http(req)
     assert r["ok"] is False  # 无草稿：不生成文件直接报错
+
+
+def test_open_doc_kb_falls_back_when_pdf_path_stale(monkeypatch, work_tmp):
+    """回归：KB 里 pdf_path 过期（目录迁移后）时，按文件名重新定位，
+    而不是直接拿着旧路径去打开报"文件不存在"。"""
+    import rag_core.pdf_open as po
+    kb_file = os.path.join(work_tmp, "kb_stale.json")
+    with open(kb_file, "w", encoding="utf-8") as f:
+        json.dump([{"source": "论文A.pdf",
+                    "pdf_path": os.path.join(work_tmp, "old", "论文A.pdf"),
+                    "text": "x"}], f, ensure_ascii=False)
+    real_pdf = os.path.join(work_tmp, "docs", "论文A.pdf")
+    os.makedirs(os.path.dirname(real_pdf), exist_ok=True)
+    with open(real_pdf, "w", encoding="utf-8") as f:
+        f.write("x")
+    monkeypatch.setattr(core, "KB_FILE", kb_file)
+    monkeypatch.setattr(core, "PDF_SOURCE_DIRS", [os.path.dirname(real_pdf)])
+    opened = {}
+    monkeypatch.setattr(po, "open_pdf_page", lambda p, page=1: opened.update(path=p) or {"ok": True})
+    r = core.open_doc_kb("论文A.pdf", 3)
+    assert r["ok"] and opened["path"] == real_pdf
