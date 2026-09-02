@@ -1,5 +1,7 @@
 # RAG-Finance —— 金融论文检索增强问答系统
 
+[![tests](https://github.com/Miochiii/finance-paper-RAG/actions/workflows/tests.yml/badge.svg)](https://github.com/Miochiii/finance-paper-RAG/actions)
+
 面向论文/文档知识库的本地 RAG 系统：**MinerU（PDF 解析）→ 四种分块模式 → 混合检索（BM25 + BGE 向量 + 重排）→ DeepSeek 问答**，提供命令行 / HTTP / MCP（DeepSeek Harness 工具）/ 桌面端四种使用方式，可被 agent 直接调用。
 
 ## 特性
@@ -19,22 +21,19 @@
 
 ## 架构
 
+```mermaid
+flowchart LR
+    A[原始文档<br/>PDF / Word] -->|MinerU 版面解析| B[content_list.json<br/>正文·表格·公式·页码]
+    B --> C[rag_core 管线<br/>分块 4 模式<br/>页码归属 + 元数据打标]
+    C --> D[(知识库 KB json<br/>+ qdrant 向量索引)]
+    D --> E[混合检索<br/>BM25+金融词典 · BGE 向量<br/>RRF 融合 · 重排]
+    E --> F[rag_server 一体化服务<br/>HTTP 8000 + MCP /mcp 15 工具]
+    F --> G[命令行 run_rag.py]
+    F --> H[DeepSeek Harness agent<br/>mcp__rag__*]
+    F --> I[桌面面板 / 综述编辑器<br/>导出 Word 论文排版]
 ```
-原始文档(PDF/Word)
-   │  MinerU 解析（外部工具）→ content_list.json
-   ▼
-rag_core 管线
-   │  分块（4 模式）+ 页码归属 + 金融词典
-   ▼
-知识库(KB json) + 向量索引(qdrant 本地)
-   │  BM25 + 向量 + RRF + 重排
-   ▼
-rag_server 一体化服务（HTTP 8000 + MCP 8000/mcp）
-   ├── 命令行 run_rag.py
-   ├── HTTP API / MCP 工具
-   ├── DeepSeek Harness agent（mcp__rag__*）
-   └── 桌面端（DSH 主窗口 + 知识库面板）
-```
+
+数据流：MinerU 解析结果入库分块（含页码与元数据）→ 双索引（BM25 + 向量）→ 检索融合重排 → 同一服务进程对外提供 HTTP、MCP、桌面面板与综述编辑器四类入口，保证 qdrant 本地存储锁唯一持有。
 
 ## 目录结构
 
