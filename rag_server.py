@@ -84,6 +84,15 @@ def _save_ingest_state(state: dict, path: str = None):
 
 app = FastAPI(title="rag-server", version="1.0")
 
+# 允许浏览器直接打开 panel.html / editor.html（file:// 或本地页面）调用 HTTP 接口
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # ---- 请求模型 ----
 class BuildReq(BaseModel):
     chunker: str = "hmm"     # fixed / discourse / hybrid / hmm

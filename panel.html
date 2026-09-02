@@ -119,6 +119,69 @@
   <div id="obs"><div class="obs-empty">加载中...</div></div>
 
 <script>
+// —— 运行环境适配：桌面端（pywebview 桥）或浏览器直开（HTTP 兜底）——
+// pywebview 的桥在页面加载后才注入：启动逻辑等 'pywebviewready' 事件；
+// 浏览器直开时桥永远不来，超时后自动挂 HTTP 兜底 api（服务需开 CORS，已加）。
+const HTTP_BASE = 'http://127.0.0.1:8000';
+async function httpCall(method, path, body) {
+  const r = await fetch(HTTP_BASE + path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return r.json();
+}
+const httpApi = {
+  get_status: async () => {
+    let dsh = false;
+    try { await fetch('http://127.0.0.1:3080/', { mode: 'no-cors' }); dsh = true; } catch (e) {}
+    return { dsh, kb: await httpCall('GET', '/stats') };
+  },
+  start_mcp: () => ({ ok: false, msg: '浏览器模式：请手动运行 启动RAG服务.bat' }),
+  start_dsh: () => ({ ok: false, msg: '浏览器模式：无法启动 DSH' }),
+  open_doc: (doc) => httpCall('POST', '/open', { doc, page: 1 }),
+  rebuild: (mode = 'hmm') => { httpCall('POST', '/build', { chunker: mode }); return { ok: true, msg: '重建已提交（后台执行，约 2~5 分钟）' }; },
+  ingest: () => { httpCall('POST', '/ingest', {}); return { ok: true, msg: '增量更新已提交（后台执行）' }; },
+  last_build: () => ({ ok: null, msg: '浏览器模式无任务记录' }),
+  corpus_list: () => httpCall('GET', '/corpus/list'),
+  corpus_switch: (name) => httpCall('POST', '/corpus/switch', { name }),
+  corpus_create: (name, mineru_out) => httpCall('POST', '/corpus/create', { name, mineru_out: mineru_out || null }),
+  meta_vocab: () => httpCall('GET', '/meta/vocab'),
+  survey_list: () => httpCall('GET', '/survey/list'),
+  search_filters: (query, methods, tasks, year_min, year_max, author, top_k) => {
+    const filters = {};
+    if (methods && methods.length) filters.methods = methods;
+    if (tasks && tasks.length) filters.tasks = tasks;
+    if (year_min) filters.year_min = Number(year_min);
+    if (year_max) filters.year_max = Number(year_max);
+    if (author) filters.authors = [author];
+    return httpCall('POST', '/search', { query, top_k: top_k || 8, filters });
+  },
+  open_url: (url) => { window.open(url, '_blank'); return { ok: true, msg: '已打开' }; },
+  survey_outline: (topic, outline) => httpCall('POST', '/survey/outline', { topic, outline: outline || null }),
+  survey_draft: (topic) => httpCall('POST', '/survey/draft', { topic }),
+  survey_status: (topic) => httpCall('GET', '/survey/status?topic=' + encodeURIComponent(topic)),
+  survey_section: (topic, section) => httpCall('GET', '/survey/section?topic=' + encodeURIComponent(topic) + '&section=' + encodeURIComponent(section)),
+  survey_rewrite: (topic, section, instruction) => httpCall('POST', '/survey/rewrite', { topic, section, instruction }),
+  survey_edit: (topic, section, text) => httpCall('POST', '/survey/edit', { topic, section, text }),
+  survey_export: (topic) => httpCall('POST', '/survey/export', { topic, format: 'markdown' }),
+};
+let _booted = false;
+function startApp() {
+  if (_booted) return;
+  _booted = true;
+  refresh();
+  corpusRefresh();
+  loadSurveyTopics();
+}
+window.addEventListener('pywebviewready', startApp);   // 桌面端：桥就绪后启动
+setTimeout(function () {
+  if (!(window.pywebview && window.pywebview.api)) {
+    window.pywebview = { api: httpApi };               // 浏览器模式：HTTP 兜底
+  }
+  startApp();
+}, 1500);
+
 async function apiCall(name, args, msg) {
   if (msg) document.getElementById('msg').textContent = msg;
   try {
@@ -496,9 +559,7 @@ async function openEditor() {
   }
 }
 
-refresh();
-corpusRefresh();
-loadSurveyTopics();
+// 启动由 startApp() 负责（等 pywebview 桥就绪 / 浏览器模式挂 HTTP 兜底）
 </script>
 </body>
 </html>
