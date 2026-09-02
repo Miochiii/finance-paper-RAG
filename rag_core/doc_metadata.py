@@ -17,11 +17,16 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from rag_core.config import KB_FILE as KB_FILE_DEFAULT
+from rag_core.config import DOC_META_FILE
 
-DOC_META_FILE = os.getenv(
-    "RAG_DOC_META",
-    os.path.join(os.path.dirname(KB_FILE_DEFAULT), "doc_metadata.json"),
-)
+
+def refresh_paths():
+    """按激活语料刷新路径全局量（语料切换后由 rag_server 调用）。"""
+    from rag_core import corpus
+    p = corpus.runtime_paths()
+    global KB_FILE_DEFAULT, DOC_META_FILE
+    KB_FILE_DEFAULT = p["kb"]
+    DOC_META_FILE = p["meta"]
 
 # ---- 年份提取 ----
 _YEAR_AR_RE = re.compile(r"(19|20)\d{2}\s*年")

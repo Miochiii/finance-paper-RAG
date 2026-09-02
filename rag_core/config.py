@@ -41,6 +41,9 @@ PROJECT_DIR = os.path.dirname(PACKAGE_DIR)                  # 项目根目录
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
 
 # ---- 路径（默认全部在项目内；环境变量可覆盖）----
+# 语料布局（多语料：data/corpora/<语料名>/；兼容模式——未建立布局时沿用下方默认路径）
+CORPORA_DIR = os.path.join(DATA_DIR, "corpora")
+DEFAULT_CORPUS = os.getenv("RAG_CORPUS", "default")
 # 知识库与向量索引
 KB_FILE = os.getenv("RAG_KB_FILE", os.path.join(DATA_DIR, "knowledge_base.json"))
 VECTOR_DB_PATH = os.getenv("RAG_VECTOR_DB", os.path.join(DATA_DIR, "vector_db"))
@@ -55,6 +58,9 @@ DOCS_DIR = os.getenv("DOCS_DIR", os.path.join(PROJECT_DIR, "examples", "input_do
 MODEL_DIR = os.getenv("MODELSCOPE_CACHE", os.path.join(PROJECT_DIR, "models"))
 # 可观测日志
 OBS_LOG = os.getenv("RAG_OBS_LOG", os.path.join(DATA_DIR, "observability.jsonl"))
+# 文档元数据侧车 / 综述工作台目录（多语料模式下按语料隔离）
+DOC_META_FILE = os.getenv("RAG_DOC_META", os.path.join(DATA_DIR, "doc_metadata.json"))
+SURVEY_DIR = os.getenv("RAG_SURVEY_DIR", os.path.join(DATA_DIR, "surveys"))
 # 原始 PDF 搜索目录（打开引用时按文件名定位；; 分隔追加）
 PDF_SOURCE_DIRS = [d for d in (
     [x.strip() for x in os.getenv("PDF_SOURCE_DIRS", "").split(";") if x.strip()]

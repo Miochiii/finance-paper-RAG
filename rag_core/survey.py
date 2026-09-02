@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """交互式综述生成（第一期）：大纲协商 → 分段生成（先检索后写作、引用可溯源）
 → 局部重写 / 手动编辑 → 状态查询 → Markdown 导出。
 
@@ -17,10 +17,16 @@ import re
 from typing import Dict, List, Optional
 
 from rag_core.config import KB_FILE as KB_FILE_DEFAULT
-SURVEY_DIR = os.getenv(
-    "RAG_SURVEY_DIR",
-    os.path.join(os.path.dirname(KB_FILE_DEFAULT), "surveys"),
-)
+from rag_core.config import SURVEY_DIR
+
+
+def refresh_paths():
+    """按激活语料刷新路径全局量（语料切换后由 rag_server 调用）。"""
+    from rag_core import corpus
+    p = corpus.runtime_paths()
+    global SURVEY_DIR, KB_FILE_DEFAULT
+    SURVEY_DIR = p["surveys"]
+    KB_FILE_DEFAULT = p["kb"]
 
 _SLUG_RE = re.compile(r"[^\w\u4e00-\u9fa5]+")
 

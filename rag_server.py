@@ -1,29 +1,26 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 rag_server.py —— 一体化本地 RAG 服务（HTTP API + MCP 双协议，单进程）
 
 一个进程同时提供：
-  - HTTP API（脚本 / 桌面面板调用）：GET /health /stats；POST /build /search /ask /open /ingest
-                              POST /direction/analyze /direction/compare
-  - MCP 端点（DeepSeek Harness 注册工具）：/mcp
-    （工具：search / stats / build / ingest / ask / open_doc / direction_analyze / direction_compare，
-     DSH 中为 mcp__rag__*）
+  - HTTP API（脚本 / 桌面面板 / 综述编辑器调用）：
+      GET  /health /stats /editor /corpus/list /meta/vocab /survey/list
+           /survey/status /survey/section /survey/editor_data /survey/download
+      POST /build /search /ask /open /ingest /corpus/switch /corpus/create
+           /direction/analyze /direction/compare
+           /survey/outline /survey/draft /survey/rewrite /survey/edit /survey/export
+           /survey/rewrite_selection /survey/editor_save /survey/export_docx
+  - MCP 端点（DeepSeek Harness 注册工具）：/mcp，18 个工具
+    （search / stats / build / ingest / ask / open_doc / corpus_list /
+      corpus_switch / corpus_create / direction_analyze / direction_compare /
+      survey_outline / survey_draft / survey_rewrite / survey_edit /
+      survey_section / survey_status / survey_export，DSH 中为 mcp__rag__*）
 
 单进程设计保证 qdrant 本地存储锁唯一持有者——不要再同时启动其他会加载
-检索器的进程（原 8001 的 rag_mcp_server.py 已退役，见该文件说明）。
+检索器的进程。
 
 启动：python -m uvicorn rag_server:app --host 127.0.0.1 --port 8000
       （或双击 启动RAG服务.bat）
-
-接口：
-  HTTP  GET  /health                         环境自检
-  HTTP  GET  /stats                          知识库统计（含运行统计 obs）
-  HTTP  POST /build   {chunker, clear}       重建知识库（MinerU 输出 + docx 文档）
-  HTTP  POST /search  {query, top_k}         纯检索（返回块 + 来源，不生成）
-  HTTP  POST /ask     {question, top_k, deep} 检索 + 生成（带引用）
-  HTTP  POST /open    {doc, page}            打开原始 PDF 指定页
-  HTTP  POST /ingest  {}                     增量入库（只处理新增文档）
-  MCP   /mcp                                 同一批功能的 MCP 工具（供 DSH 注册）
 """
 
 import hashlib
@@ -40,18 +37,15 @@ from pydantic import BaseModel
 
 # ---- 路径（集中配置见 rag_core/config.py，可用环境变量 / .env 覆盖）----
 from rag_core import config  # noqa: E402
+
 KB_FILE = config.KB_FILE
 VECTOR_DB_PATH = config.VECTOR_DB_PATH
 MINERU_OUT = config.MINERU_OUT
 DOCS_DIR = config.DOCS_DIR
-# 原始 PDF/docx 搜索目录（按文件名定位；环境变量 PDF_SOURCE_DIRS 用 ; 分隔追加）
-PDF_SOURCE_DIRS = [d for d in (
-    [x.strip() for x in os.getenv("PDF_SOURCE_DIRS", "").split(";") if x.strip()]
-    + [DOCS_DIR, os.path.join(os.path.dirname(MINERU_OUT), "input")]
-) if d]
+PDF_SOURCE_DIRS = config.PDF_SOURCE_DIRS
 # 引用链接基地址（DSH 前端只渲染 http/https 链接，自定义协议会被丢弃；
 # 环境变量 RAG_LINK_BASE 可在 DSH 端口变化时覆盖）
-RAG_LINK_BASE = os.getenv("RAG_LINK_BASE", "http://127.0.0.1:3080/dsh-rag/open")
+RAG_LINK_BASE = config.RAG_LINK_BASE
 # 综述编辑器页面地址（浏览器新标签页；环境变量 RAG_EDITOR_BASE 可在端口变化时覆盖）
 EDITOR_BASE = os.getenv("RAG_EDITOR_BASE", "http://127.0.0.1:8000/editor")
 EDITOR_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "editor.html")
@@ -68,9 +62,10 @@ def _file_hash(path: str) -> str:
     return h.hexdigest()
 
 
-def _load_ingest_state() -> dict:
+def _load_ingest_state(path: str = None) -> dict:
+    p = path or INGEST_STATE_FILE
     try:
-        with open(INGEST_STATE_FILE, "r", encoding="utf-8") as f:
+        with open(p, "r", encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("docs"), dict):
             return data
@@ -79,12 +74,13 @@ def _load_ingest_state() -> dict:
     return {"mode": None, "docs": {}}
 
 
-def _save_ingest_state(state: dict):
-    os.makedirs(os.path.dirname(INGEST_STATE_FILE), exist_ok=True)
-    tmp = INGEST_STATE_FILE + ".tmp"
+def _save_ingest_state(state: dict, path: str = None):
+    p = path or INGEST_STATE_FILE
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, INGEST_STATE_FILE)
+    os.replace(tmp, p)
 
 app = FastAPI(title="rag-server", version="1.0")
 
@@ -92,8 +88,9 @@ app = FastAPI(title="rag-server", version="1.0")
 class BuildReq(BaseModel):
     chunker: str = "hmm"     # fixed / discourse / hybrid / hmm
     clear: bool = False
-    mineru_out: str = MINERU_OUT
-    docs_dir: str = DOCS_DIR
+    mineru_out: str = None   # 缺省取当前激活语料
+    docs_dir: str = None
+    target: str = None       # 目标语料名（缺省 = 当前激活语料）
 
 
 class SearchReq(BaseModel):
@@ -115,8 +112,20 @@ class OpenReq(BaseModel):
 
 
 class IngestReq(BaseModel):
-    mineru_out: str = MINERU_OUT
-    docs_dir: str = DOCS_DIR
+    mineru_out: str = None   # 缺省取当前激活语料
+    docs_dir: str = None
+    target: str = None       # 目标语料名（缺省 = 当前激活语料）
+
+
+class CorpusSwitchReq(BaseModel):
+    name: str
+
+
+class CorpusCreateReq(BaseModel):
+    name: str
+    mineru_out: str = None   # 提供则后台建库
+    docs_dir: str = None
+    chunker: str = "hmm"
 
 
 class DirectionReq(BaseModel):
@@ -198,25 +207,30 @@ def _fingerprint(texts, metadatas):
     return h.hexdigest()
 
 
-def get_retriever():
-    """懒加载知识库与索引；内容未变化时复用向量索引（指纹校验）。"""
+def get_retriever(kb_file: str = None, vector_db_path: str = None, cache: bool = True):
+    """懒加载知识库与索引；内容未变化时复用向量索引（指纹校验）。
+    kb_file/vector_db_path 缺省取当前激活语料；cache=False 时强制重建
+    且不写全局缓存（用于向非激活语料建库，调用方负责 close）。"""
     from rag_core.knowledge_base import KnowledgeBase
     from rag_core.retriever import HybridRetriever
 
-    kb = KnowledgeBase(KB_FILE)
+    kb_file = kb_file or KB_FILE
+    vector_db_path = vector_db_path or VECTOR_DB_PATH
+
+    kb = KnowledgeBase(kb_file)
     texts, metadatas = kb.to_texts_metadatas()
     if not texts:
-        raise RuntimeError(f"知识库为空: {KB_FILE}（请先调用 build）")
+        raise RuntimeError(f"知识库为空: {kb_file}（请先调用 build）")
 
     fp = _fingerprint(texts, metadatas)
-    if _state["retriever"] is not None and _state["kb_fp"] == fp:
+    if cache and _state["retriever"] is not None and _state["kb_fp"] == fp:
         return _state["retriever"]
 
     # 知识库变化：先关闭旧检索器（释放 qdrant 本地存储文件锁），否则新建实例会锁冲突
-    if _state["retriever"] is not None:
+    if cache and _state["retriever"] is not None:
         _state["retriever"].close()
 
-    retriever = HybridRetriever(vector_db_path=VECTOR_DB_PATH)
+    retriever = HybridRetriever(vector_db_path=vector_db_path)
     retriever.chunks = texts
     retriever.metadatas = metadatas
     retriever._build_bm25()
@@ -224,8 +238,8 @@ def get_retriever():
     vector_ok = False
     try:
         from qdrant_client import QdrantClient
-        if os.path.exists(VECTOR_DB_PATH):
-            c = QdrantClient(path=VECTOR_DB_PATH)
+        if os.path.exists(vector_db_path):
+            c = QdrantClient(path=vector_db_path)
             try:
                 names = [x.name for x in c.get_collections().collections]
                 if retriever._collection_name in names:
@@ -236,9 +250,124 @@ def get_retriever():
         vector_ok = False
     if not vector_ok:
         retriever.index(texts, metadatas)
-    _state["retriever"] = retriever
-    _state["kb_fp"] = fp
+    if cache:
+        _state["retriever"] = retriever
+        _state["kb_fp"] = fp
     return retriever
+
+
+# ---- 语料管理（多语料：激活/切换/新建/词汇表/综述列表）----
+_BUILD_JOBS = {}   # 语料名 -> {"status": running|done|failed, "msg": str}
+
+
+def _refresh_paths():
+    """按激活语料刷新本模块与下游模块的路径全局量（切换语料后调用）。"""
+    from rag_core import corpus
+    p = corpus.runtime_paths()
+    global KB_FILE, VECTOR_DB_PATH, MINERU_OUT, DOCS_DIR, PDF_SOURCE_DIRS, INGEST_STATE_FILE
+    KB_FILE = p["kb"]
+    VECTOR_DB_PATH = p["vector_db"]
+    MINERU_OUT = p["mineru_out"]
+    DOCS_DIR = p["docs"]
+    PDF_SOURCE_DIRS = p["pdf_source_dirs"]
+    INGEST_STATE_FILE = p["ingest"]
+    import rag_core.survey as _sv
+    _sv.refresh_paths()
+    import rag_core.doc_metadata as _dm
+    _dm.refresh_paths()
+
+
+def list_corpora_kb() -> dict:
+    from rag_core import corpus
+    active = corpus.read_current() or config.DEFAULT_CORPUS
+    items = corpus.list_corpora()
+    for it in items:
+        it["active"] = it["name"] == active
+        job = _BUILD_JOBS.get(it["name"])
+        it["build"] = job or ({"status": "idle", "msg": ""} if it["kb"] else
+                              {"status": "empty", "msg": "未建库"})
+    return {"ok": True, "active": active, "corpora": items}
+
+
+def switch_corpus_kb(name: str) -> dict:
+    from rag_core import corpus
+    r = corpus.switch(name)
+    if not r.get("ok"):
+        return r
+    # 释放旧检索器（qdrant 锁）并清指纹缓存 → 下次调用自动按新语料重建
+    if _state["retriever"] is not None:
+        try:
+            _state["retriever"].close()
+        except Exception:
+            pass
+        _state["retriever"] = None
+    _state["kb_fp"] = None
+    _refresh_paths()
+    from rag_core import corpus as _c
+    return {"ok": True, "name": r["name"], "active": r["name"],
+            "paths": _c.runtime_paths(r["name"])}
+
+
+def create_corpus_kb(name: str, mineru_out: str = None, docs_dir: str = None,
+                     chunker: str = "hmm") -> dict:
+    from rag_core import corpus
+    r = corpus.create(name)
+    if not r.get("ok"):
+        return r
+    if mineru_out and str(mineru_out).strip():
+        _BUILD_JOBS[name] = {"status": "running", "msg": "构建中…"}
+        import threading
+
+        def _run():
+            try:
+                build_kb(chunker=chunker, mineru_out=str(mineru_out).strip(),
+                         docs_dir=docs_dir, target=name)
+                _BUILD_JOBS[name] = {"status": "done", "msg": "构建完成"}
+            except Exception as e:
+                _BUILD_JOBS[name] = {"status": "failed", "msg": str(e)[:200]}
+
+        threading.Thread(target=_run, daemon=True).start()
+        return {"ok": True, "name": name, "building": True,
+                "msg": "语料已创建，后台构建中（/corpus/list 查看进度）"}
+    return {"ok": True, "name": name, "building": False,
+            "msg": "语料目录已创建（未提供 mineru_out；可稍后 build 或放入 MinerU 产物后重试）"}
+
+
+def meta_vocab_kb() -> dict:
+    """当前激活语料的元数据标签词汇表（面板筛选下拉用）。"""
+    from collections import Counter
+    from rag_core.doc_metadata import load_meta
+    meta = load_meta()
+    mcnt, tcnt = Counter(), Counter()
+    years = []
+    for d in meta.values():
+        for m in (d.get("methods") or []):
+            mcnt[str(m)] += 1
+        for t in (d.get("tasks") or []):
+            tcnt[str(t)] += 1
+        y = d.get("year")
+        if isinstance(y, int):
+            years.append(y)
+    return {"ok": True, "docs": len(meta),
+            "methods": [{"label": k, "count": v} for k, v in sorted(mcnt.items(), key=lambda x: (-x[1], x[0]))],
+            "tasks": [{"label": k, "count": v} for k, v in sorted(tcnt.items(), key=lambda x: (-x[1], x[0]))],
+            "years": [min(years), max(years)] if years else [None, None]}
+
+
+def survey_list_kb() -> dict:
+    """当前激活语料的综述主题列表（面板打开编辑器用）。"""
+    import rag_core.survey as _sv
+    topics = []
+    if os.path.isdir(_sv.SURVEY_DIR):
+        for name in sorted(os.listdir(_sv.SURVEY_DIR)):
+            d = os.path.join(_sv.SURVEY_DIR, name)
+            if os.path.isdir(d):
+                topics.append({
+                    "topic": name,
+                    "has_draft": os.path.isfile(os.path.join(d, "draft.md")),
+                    "has_export": os.path.isdir(os.path.join(d, "exports")),
+                })
+    return {"ok": True, "topics": topics}
 
 
 def _page_label(meta: dict) -> str:
@@ -372,8 +501,10 @@ def search_kb(query: str, top_k: int = 5, filters: dict = None) -> dict:
 
 
 def build_kb(chunker: str = "hmm", clear: bool = False,
-             mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
-    """MinerU 输出 + docx 文档 → 分块 → 知识库 + 索引。"""
+             mineru_out: str = None, docs_dir: str = None,
+             target: str = None) -> dict:
+    """MinerU 输出 + docx 文档 → 分块 → 知识库 + 索引。
+    target 指定时向该语料建库（不影响当前激活语料）；缺省作用于激活语料。"""
     from rag_core.knowledge_base import KnowledgeBase
     from rag_core.chunk_splitter import dispatch_chunk
     from rag_core.mineru_loader import find_mineru_outputs, load_mineru_doc
@@ -383,11 +514,32 @@ def build_kb(chunker: str = "hmm", clear: bool = False,
     if mode not in ("fixed", "discourse", "hybrid", "hmm"):
         return {"ok": False, "error": f"未知分块模式 {chunker}"}
 
+    # 目标路径：target 语料 or 激活语料
+    from rag_core import corpus as _corpus
+    if target:
+        err = _corpus.validate_name(target)
+        if err:
+            return {"ok": False, "error": err}
+        tp = _corpus.paths(target)
+        kb_file = tp["kb"]
+        vector_db_path = tp["vector_db"]
+        mineru_out = mineru_out or tp["mineru_out"]
+        docs_dir = docs_dir or tp["docs"]
+        ingest_state_file = tp["ingest"]
+        pdf_dirs = tp["pdf_source_dirs"]
+    else:
+        kb_file = KB_FILE
+        vector_db_path = VECTOR_DB_PATH
+        mineru_out = mineru_out or MINERU_OUT
+        docs_dir = docs_dir or DOCS_DIR
+        ingest_state_file = INGEST_STATE_FILE
+        pdf_dirs = PDF_SOURCE_DIRS
+
     from rag_core.observability import Timer, log_event
     t_all = Timer()
 
-    if clear and os.path.exists(KB_FILE):
-        os.remove(KB_FILE)
+    if clear and os.path.exists(kb_file):
+        os.remove(kb_file)
 
     docs = {}
     doc_hashes = {}
@@ -415,11 +567,11 @@ def build_kb(chunker: str = "hmm", clear: bool = False,
                   error="未找到文档")
         return {"ok": False, "error": f"未找到文档（mineru_out={mineru_out}, docs_dir={docs_dir}）"}
 
-    kb = KnowledgeBase(KB_FILE)
+    kb = KnowledgeBase(kb_file)
     total_chunks = 0
     per_doc_chunks = {}
     doc_names = sorted(docs)
-    print(f"全量重建开始：模式={mode}，共 {len(doc_names)} 篇（clear={clear}）", flush=True)
+    print(f"全量重建开始：模式={mode}，共 {len(doc_names)} 篇（clear={clear}，target={target or '当前语料'}）", flush=True)
     for di, name in enumerate(doc_names, start=1):
         print(f"  [{di}/{len(doc_names)}] {name} …", flush=True)
         if mode == "hmm":
@@ -436,7 +588,7 @@ def build_kb(chunker: str = "hmm", clear: bool = False,
             parts = dispatch_chunk(docs[name], mode, 800, 50)
         # 溯源元数据：原始文件路径 + 每块页码归属（对齐失败时页码为 None）
         from rag_core.pdf_open import resolve_pdf_path
-        pdf_path = resolve_pdf_path(name, PDF_SOURCE_DIRS)
+        pdf_path = resolve_pdf_path(name, pdf_dirs)
         page_ranges = None
         if name.lower().endswith(".pdf"):
             from rag_core.chunk_splitter import attribute_pages
@@ -452,17 +604,23 @@ def build_kb(chunker: str = "hmm", clear: bool = False,
     _save_ingest_state({"mode": mode, "docs": {
         n: {"hash": doc_hashes.get(n), "chunks": per_doc_chunks.get(n, 0), "mode": mode}
         for n in docs
-    }})
+    }}, path=ingest_state_file)
 
-    # 重建索引：先关闭旧检索器释放 qdrant 锁，再让 get_retriever 重建
-    if _state["retriever"] is not None:
-        _state["retriever"].close()
-    _state["retriever"] = None
-    _state["kb_fp"] = None
-    get_retriever()
+    if target:
+        # 向非激活语料建库：独立构建索引后释放句柄，不影响当前激活语料
+        rtr = get_retriever(kb_file=kb_file, vector_db_path=vector_db_path, cache=False)
+        rtr.close()
+    else:
+        # 重建索引：先关闭旧检索器释放 qdrant 锁，再让 get_retriever 重建
+        if _state["retriever"] is not None:
+            _state["retriever"].close()
+        _state["retriever"] = None
+        _state["kb_fp"] = None
+        get_retriever()
     log_event("build", ok=True, mode=mode, clear=clear, docs=len(docs),
               chunks=total_chunks, total_ms=round(t_all.ms(), 1))
-    return {"ok": True, "chunker": mode, "docs": len(docs), "chunks": total_chunks}
+    return {"ok": True, "chunker": mode, "docs": len(docs), "chunks": total_chunks,
+            "target": target}
 
 
 def _classify_inputs(state: dict, hashes: dict, mode: str):
@@ -480,16 +638,39 @@ def _classify_inputs(state: dict, hashes: dict, mode: str):
     return new, changed, unchanged, removed
 
 
-def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
+def ingest_kb(mineru_out: str = None, docs_dir: str = None,
+              target: str = None) -> dict:
     """增量入库（方案 A）：
     - 只处理**新增**文档：分块 + 页码归属 + 追加块 + 只嵌入新增块（已有向量不动）；
     - 检测到删除/变更（文件哈希与状态侧车不一致）→ 自动全量重建；
     - 无变化 → 秒级空跑并同步状态。
+    target 指定时作用于该语料（不影响激活语料）；缺省作用于激活语料。
     返回报告 {ok, added, added_chunks, unchanged, mode, msg}。"""
     from rag_core.knowledge_base import KnowledgeBase, _chunk_entries
     from rag_core.mineru_loader import find_mineru_outputs, load_mineru_doc
     from rag_core.document_loader import _extract_docx_content
     from rag_core.pdf_open import resolve_pdf_path
+
+    # 目标路径：target 语料 or 激活语料
+    from rag_core import corpus as _corpus
+    if target:
+        err = _corpus.validate_name(target)
+        if err:
+            return {"ok": False, "error": err}
+        tp = _corpus.paths(target)
+        kb_file = tp["kb"]
+        vector_db_path = tp["vector_db"]
+        mineru_out = mineru_out or tp["mineru_out"]
+        docs_dir = docs_dir or tp["docs"]
+        ingest_state_file = tp["ingest"]
+        pdf_dirs = tp["pdf_source_dirs"]
+    else:
+        kb_file = KB_FILE
+        vector_db_path = VECTOR_DB_PATH
+        mineru_out = mineru_out or MINERU_OUT
+        docs_dir = docs_dir or DOCS_DIR
+        ingest_state_file = INGEST_STATE_FILE
+        pdf_dirs = PDF_SOURCE_DIRS
 
     # 1) 扫描输入（只取路径，不加载全文）
     inputs = {}
@@ -503,7 +684,7 @@ def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
     if not inputs:
         return {"ok": False, "error": f"未找到输入文档（mineru_out={mineru_out}, docs_dir={docs_dir}）"}
 
-    state = _load_ingest_state()
+    state = _load_ingest_state(ingest_state_file)
     mode = state.get("mode") or "hmm"
 
     # 2) 三分类（文件哈希比对，秒级）
@@ -512,14 +693,14 @@ def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
 
     # 3) 删除/变更 → 全量重建（方案 A 规则：不动点 id，避免空洞）
     if removed or changed_docs:
-        r = build_kb(mode, False, mineru_out, docs_dir)
+        r = build_kb(mode, False, mineru_out, docs_dir, target=target)
         if r.get("ok"):
             r["note"] = f"检测到删除 {len(removed)} 篇 / 变更 {len(changed_docs)} 篇，已自动全量重建"
         return r
 
     # 4) 与现有知识库去重：首次启用状态文件时（state 为空但库里有货），
     #    只补状态、不重复入库，防止索引与 KB 双重追加
-    kb = KnowledgeBase(KB_FILE)
+    kb = KnowledgeBase(kb_file)
     try:
         existing_sources = {c.get("source") for c in kb.load()}
     except Exception:
@@ -530,15 +711,16 @@ def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
     if not truly_new:
         _save_ingest_state({"mode": mode, "docs": {
             n: {"hash": hashes[n], "mode": mode} for n in inputs
-        }})
+        }}, path=ingest_state_file)
         return {"ok": True, "added": 0, "added_chunks": 0,
                 "unchanged": len(unchanged), "mode": mode, "msg": "无新文档（状态已同步）"}
 
     # 5) 纯新增 → 增量追加
     try:
-        retriever = get_retriever()
+        retriever = get_retriever(kb_file=kb_file, vector_db_path=vector_db_path,
+                                  cache=(target is None))
     except RuntimeError:
-        return build_kb(mode, False, mineru_out, docs_dir)  # 知识库为空 → 全量构建
+        return build_kb(mode, False, mineru_out, docs_dir, target=target)  # 知识库为空 → 全量构建
 
     from rag_core.chunk_splitter import attribute_pages
     from rag_core.hmm_chunker import hmm_chunk
@@ -568,7 +750,7 @@ def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
         else:
             from rag_core.chunk_splitter import dispatch_chunk
             parts = dispatch_chunk(raw, mode, 800, 50)
-        pdf_path = resolve_pdf_path(name, PDF_SOURCE_DIRS)
+        pdf_path = resolve_pdf_path(name, pdf_dirs)
         page_ranges = attribute_pages(raw, parts) if name.lower().endswith(".pdf") else None
         entries = _chunk_entries(parts, name, mode, pdf_path, page_ranges)
         if not entries:
@@ -584,8 +766,11 @@ def ingest_kb(mineru_out: str = MINERU_OUT, docs_dir: str = DOCS_DIR) -> dict:
         print(f"  [INGEST] {name}: +{len(entries)} 块")
 
     kb.save()
-    _save_ingest_state(new_state)
-    _state["kb_fp"] = _fingerprint(retriever.chunks, retriever.metadatas)
+    _save_ingest_state(new_state, path=ingest_state_file)
+    if target:
+        retriever.close()   # 非激活语料：用毕释放 qdrant 锁
+    else:
+        _state["kb_fp"] = _fingerprint(retriever.chunks, retriever.metadatas)
     from rag_core.observability import log_event
     log_event("ingest", ok=True, added=added_docs, added_chunks=added_chunks,
               unchanged=len(unchanged), mode=mode)
@@ -671,7 +856,9 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None) -> dict:
 
 
 def open_doc_kb(doc: str, page: int = 1) -> dict:
-    """打开知识库中某文档的原始文件并跳到指定页。"""
+    """打开知识库中某文档的原始文件并跳到指定页。
+    KB 里的 pdf_path 可能过期（目录迁移后指向旧位置）——先验证存在性，
+    失效则按文件名在 PDF_SOURCE_DIRS 里重新定位。"""
     from rag_core.pdf_open import resolve_pdf_path, open_pdf_page
 
     pdf_path = None
@@ -682,7 +869,7 @@ def open_doc_kb(doc: str, page: int = 1) -> dict:
                 cand = c["pdf_path"]
                 if os.path.isfile(cand):   # 过期路径不再直接使用
                     pdf_path = cand
-                break
+                    break
     except Exception:
         pass
     if not pdf_path:
@@ -717,7 +904,7 @@ def stats():
 
 @app.post("/build")
 def build(req: BuildReq):
-    return build_kb(req.chunker, req.clear, req.mineru_out, req.docs_dir)
+    return build_kb(req.chunker, req.clear, req.mineru_out, req.docs_dir, target=req.target)
 
 
 @app.post("/search")
@@ -737,7 +924,33 @@ def open_doc(req: OpenReq):
 
 @app.post("/ingest")
 def ingest(req: IngestReq):
-    return ingest_kb(req.mineru_out, req.docs_dir)
+    return ingest_kb(req.mineru_out, req.docs_dir, target=req.target)
+
+
+# ---- 语料管理 / 元数据词汇表 / 综述列表 ----
+@app.get("/corpus/list")
+def corpus_list():
+    return list_corpora_kb()
+
+
+@app.post("/corpus/switch")
+def corpus_switch(req: CorpusSwitchReq):
+    return switch_corpus_kb(req.name)
+
+
+@app.post("/corpus/create")
+def corpus_create(req: CorpusCreateReq):
+    return create_corpus_kb(req.name, req.mineru_out, req.docs_dir, req.chunker)
+
+
+@app.get("/meta/vocab")
+def meta_vocab():
+    return meta_vocab_kb()
+
+
+@app.get("/survey/list")
+def survey_list():
+    return survey_list_kb()
 
 
 @app.post("/direction/analyze")
@@ -928,6 +1141,28 @@ def mcp_ingest() -> dict:
     return ingest_kb()
 
 
+@mcp.tool(name="corpus_list")
+def mcp_corpus_list() -> dict:
+    """列出所有语料与激活状态：各语料块数、是否建库/有词典/有文档、构建进度。
+    判断当前在哪个语料、有哪些可切换语料时使用。"""
+    return list_corpora_kb()
+
+
+@mcp.tool(name="corpus_switch")
+def mcp_corpus_switch(name: str) -> dict:
+    """切换激活语料：之后所有检索/问答/综述/元数据筛选都落在新语料上
+    （关键词词典与标签词汇表随之切换）。name 为 corpus_list 返回的语料名。"""
+    return switch_corpus_kb(name)
+
+
+@mcp.tool(name="corpus_create")
+def mcp_corpus_create(name: str, mineru_out: str = None, chunker: str = "hmm") -> dict:
+    """新建语料：仅创建目录；若提供 mineru_out（MinerU 解析产物目录）则后台建库
+    （长任务，进度见 corpus_list）。新语料暂无专属词典时自动回退内置金融词典，
+    可后续在语料目录放 dict.txt 补充。"""
+    return create_corpus_kb(name, mineru_out=mineru_out, chunker=chunker)
+
+
 @mcp.tool(name="ask")
 def mcp_ask(question: str, top_k: int = 5, year_min: int = None, year_max: int = None,
             authors: list = None, methods: list = None, tasks: list = None) -> dict:
@@ -1052,6 +1287,9 @@ def mcp_survey_export(topic: str, format: str = "markdown") -> dict:
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+
+# 按激活语料初始化路径全局量（之后切换语料时由 switch_corpus_kb 再次刷新）
+_refresh_paths()
 
 # 挂载 MCP（streamable-http 协议，路径 /mcp）。
 # 注意三点：1) http_app 内部已自带 /mcp 路由，故挂载在根路径，否则变成 /mcp/mcp（404）；

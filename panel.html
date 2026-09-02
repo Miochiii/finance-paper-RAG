@@ -23,6 +23,12 @@
   #obs-table td:first-child { background: #fafbfd; color: #667; width: 45%; }
   .obs-empty { font-size: 11px; color: #999; }
   #msg { font-size: 12px; color: #555; min-height: 18px; margin-top: 6px; }
+  .chip-sel { display: inline-block; padding: 2px 8px; margin: 2px; border: 1px solid #ccc; border-radius: 999px; cursor: pointer; font-size: 12px; background: #fff; color: #444; }
+  .chip-sel.on { background: #4a6cf7; color: #fff; border-color: #4a6cf7; }
+  .qhit { margin: 6px 0; padding: 6px; border: 1px solid #eee; border-radius: 4px; background: #fff; }
+  .qhit .src { color: #4a6cf7; cursor: pointer; font-size: 12px; }
+  .qhit .txt { color: #555; font-size: 12px; margin-top: 2px; }
+  input, select { padding: 5px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -54,10 +60,43 @@
     </table>
   </div>
 
+  <h2>🗂️ 语料管理</h2>
+  <div class="row">
+    <select id="corpus-sel" style="flex:1"></select>
+    <button onclick="corpusSwitch()">切换语料</button>
+    <button class="small" onclick="corpusRefresh()">🔄</button>
+  </div>
+  <div id="corpus-info" style="font-size:12px;color:#555;margin:4px 0">加载中...</div>
+  <div class="row">
+    <input id="corpus-new-name" placeholder="新语料名" style="width:130px">
+    <input id="corpus-new-mineru" placeholder="MinerU 输出目录（可选，填了自动后台建库）" style="flex:1">
+    <button onclick="corpusCreate()">＋ 新建语料</button>
+  </div>
+
+  <h2>🔍 筛选检索</h2>
+  <div class="row">
+    <input id="q-query" placeholder="检索问题（回车执行）" style="flex:1" onkeydown="if(event.key==='Enter')doSearch()">
+    <button onclick="doSearch()">检索</button>
+  </div>
+  <div class="row"><span style="font-size:12px;color:#667">方法:</span><span id="q-methods"></span></div>
+  <div class="row"><span style="font-size:12px;color:#667">任务:</span><span id="q-tasks"></span></div>
+  <div class="row">
+    <span style="font-size:12px;color:#667">年份</span>
+    <input id="q-y1" type="number" placeholder="起" style="width:70px"> ~
+    <input id="q-y2" type="number" placeholder="止" style="width:70px">
+    <span style="font-size:12px;color:#667">作者</span>
+    <input id="q-author" placeholder="作者名" style="width:110px">
+  </div>
+  <div id="q-results" style="max-height:230px;overflow-y:auto;border:1px solid #ddd;background:#fafbfd;padding:6px"></div>
+
   <h2>📝 综述工作台</h2>
   <div class="row">
-    <input id="sv-topic" placeholder="综述主题" style="flex:1;padding:5px;border:1px solid #ccc;border-radius:4px">
+    <input id="sv-topic" placeholder="综述主题" style="flex:1">
     <button onclick="svGenerateOutline()">🔍 大纲</button>
+  </div>
+  <div class="row">
+    <select id="ed-topic" style="flex:1"><option>（该语料暂无综述）</option></select>
+    <button onclick="openEditor()">🖊️ 打开综述编辑器</button>
   </div>
   <div id="sv-outline" style="margin:6px 0"></div>
   <div class="row">
@@ -309,7 +348,157 @@ async function svExport() {
   } catch (e) { svMsg('调用失败: ' + e); }
 }
 
+// ================= 语料管理（第三步） =================
+let corpusItems = [];
+let vocab = { methods: [], tasks: [] };
+const selFilters = { methods: new Set(), tasks: new Set() };
+
+async function corpusRefresh() {
+  try {
+    const r = await window.pywebview.api.corpus_list();
+    if (!r || !r.ok) {
+      document.getElementById('corpus-info').textContent = '语料加载失败: ' + ((r && r.error) || '');
+      return;
+    }
+    corpusItems = r.corpora || [];
+    const sel = document.getElementById('corpus-sel');
+    sel.innerHTML = corpusItems.map(it =>
+      `<option value="${it.name}" ${it.active ? 'selected' : ''}>${it.name}${it.active ? ' ★' : ''}（${it.chunks}块${it.build && it.build.status === 'running' ? ' · 构建中' : ''}）</option>`
+    ).join('');
+    const cur = corpusItems.find(it => it.active);
+    document.getElementById('corpus-info').textContent = cur
+      ? `激活语料：${cur.name}（${cur.chunks} 块${cur.build && cur.build.status === 'running' ? '，后台构建中' : ''}）`
+      : '无激活语料';
+    await vocabRefresh();
+  } catch (e) {
+    document.getElementById('corpus-info').textContent = '语料加载失败: ' + e;
+  }
+}
+
+async function corpusSwitch() {
+  const name = document.getElementById('corpus-sel').value;
+  if (!name) return;
+  const msg = document.getElementById('msg');
+  msg.textContent = '切换语料到 ' + name + ' ...';
+  try {
+    const r = await window.pywebview.api.corpus_switch(name);
+    msg.textContent = (r && r.ok) ? '已切换到：' + name : '切换失败: ' + ((r && r.error) || '');
+  } catch (e) { msg.textContent = '切换失败: ' + e; }
+  await refresh();
+  await corpusRefresh();
+}
+
+async function corpusCreate() {
+  const name = document.getElementById('corpus-new-name').value.trim();
+  if (!name) { document.getElementById('msg').textContent = '请输入新语料名'; return; }
+  const mineru = document.getElementById('corpus-new-mineru').value.trim();
+  const msg = document.getElementById('msg');
+  msg.textContent = '创建语料中' + (mineru ? '（将后台建库，长任务）' : '') + '...';
+  try {
+    const r = await window.pywebview.api.corpus_create(name, mineru);
+    msg.textContent = (r && r.ok) ? (r.msg || '已创建') : '失败: ' + ((r && r.error) || '');
+  } catch (e) { msg.textContent = '失败: ' + e; }
+  document.getElementById('corpus-new-name').value = '';
+  document.getElementById('corpus-new-mineru').value = '';
+  setTimeout(corpusRefresh, 2000);
+}
+
+// ================= 筛选检索（第三步） =================
+async function vocabRefresh() {
+  try {
+    const r = await window.pywebview.api.meta_vocab();
+    if (r && r.ok) vocab = r;
+    renderChips('q-methods', 'methods');
+    renderChips('q-tasks', 'tasks');
+  } catch (e) {}
+}
+
+function chipId(key, label) {
+  return 'chip-' + key + '-' + label.replace(/[^\w\u4e00-\u9fa5]/g, '_');
+}
+
+function renderChips(id, key) {
+  const box = document.getElementById(id);
+  box.innerHTML = (vocab[key] || []).map(x =>
+    `<span class="chip-sel" id="${chipId(key, x.label)}" onclick="toggleChip('${key}','${x.label}')">${x.label}(${x.count})</span>`
+  ).join('');
+}
+
+function toggleChip(key, label) {
+  const s = selFilters[key];
+  if (s.has(label)) s.delete(label); else s.add(label);
+  const el = document.getElementById(chipId(key, label));
+  if (el) el.classList.toggle('on', s.has(label));
+}
+
+const qHits = [];
+async function doSearch() {
+  const q = document.getElementById('q-query').value.trim();
+  const box = document.getElementById('q-results');
+  if (!q) { document.getElementById('msg').textContent = '请输入检索问题'; return; }
+  document.getElementById('msg').textContent = '检索中...';
+  try {
+    const r = await window.pywebview.api.search_filters(
+      q,
+      [...selFilters.methods], [...selFilters.tasks],
+      document.getElementById('q-y1').value, document.getElementById('q-y2').value,
+      document.getElementById('q-author').value.trim()
+    );
+    if (r && r.ok && r.results) {
+      qHits.length = 0;
+      qHits.push(...r.results);
+      box.innerHTML = qHits.map((x, i) => {
+        const m = x.metadata || {};
+        return `<div class="qhit">
+          <div class="src" onclick="openHit(${i})">📄 ${m.source || '未知'}（第${m.page_start ?? '?'}-${m.page_end ?? '?'}页）</div>
+          <div class="txt">${(x.text || '').slice(0, 200)}…</div></div>`;
+      }).join('') || '<div style="font-size:12px;color:#999">无结果</div>';
+    } else {
+      box.innerHTML = '<div style="font-size:12px;color:#c0392b">检索失败: ' + ((r && r.error) || '') + '</div>';
+    }
+  } catch (e) { box.innerHTML = '调用失败: ' + e; }
+  document.getElementById('msg').textContent = '';
+}
+
+async function openHit(i) {
+  const hit = qHits[i];
+  if (!hit) return;
+  const name = (hit.metadata && hit.metadata.source) || '';
+  try {
+    const r = await window.pywebview.api.open_doc(name);
+    document.getElementById('msg').textContent = (r && r.ok) ? '已打开: ' + name : '打开失败: ' + ((r && r.error) || '');
+  } catch (e) { document.getElementById('msg').textContent = '打开失败: ' + e; }
+}
+
+// ================= 综述编辑器入口（第三步） =================
+async function loadSurveyTopics() {
+  try {
+    const r = await window.pywebview.api.survey_list();
+    if (r && r.ok) {
+      const topics = r.topics || [];
+      document.getElementById('ed-topic').innerHTML = topics.length
+        ? topics.map(t => `<option value="${t.topic}">${t.topic}${t.has_draft ? '（草稿）' : ''}</option>`).join('')
+        : '<option>（该语料暂无综述）</option>';
+    }
+  } catch (e) {}
+}
+
+async function openEditor() {
+  const sel = document.getElementById('ed-topic');
+  if (sel.value && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex].value) {
+    const url = 'http://127.0.0.1:8000/editor?topic=' + encodeURIComponent(sel.value);
+    try {
+      const r = await window.pywebview.api.open_url(url);
+      document.getElementById('msg').textContent = (r && r.ok) ? '编辑器已在浏览器打开' : '打开失败: ' + ((r && r.error) || '');
+    } catch (e) { document.getElementById('msg').textContent = '打开失败: ' + e; }
+  } else {
+    document.getElementById('msg').textContent = '该语料暂无综述，先去聊天里生成';
+  }
+}
+
 refresh();
+corpusRefresh();
+loadSurveyTopics();
 </script>
 </body>
 </html>

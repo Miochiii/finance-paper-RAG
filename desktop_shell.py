@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 desktop_shell.py —— 桌面壳（PyWebview 双窗口）
 
@@ -6,8 +6,8 @@ desktop_shell.py —— 桌面壳（PyWebview 双窗口）
   侧栏窗口：知识库面板（本地 HTML，经 MCP 协议调用 rag 服务，与 agent 用同一服务进程）
 
 面板功能：服务状态灯 / 启动 MCP 服务 / 打开 DSH / 文档列表 / 重建知识库。
-注意：面板经一体化服务（HTTP + MCP 同端口 8000）调用，与 agent 工具共用
-同一个服务进程——不要再启动第二个会加载检索器的进程，否则争抢 qdrant 锁。
+注意：面板通过 MCP(8001) 调用，与 agent 工具共用同一个服务进程——不要同时再开
+HTTP 服务（rag_server.py 的 8000 端口），否则会争抢 qdrant 本地存储锁。
 
 启动：python desktop_shell.py（或双击 启动桌面端.bat）
 """
@@ -26,7 +26,8 @@ sys.path.insert(0, BASE)
 
 DSH_URL = "http://127.0.0.1:3080"
 MCP_BASE = "http://127.0.0.1:8000"   # 一体化服务：HTTP + MCP 同端口
-DSH_CMD = os.getenv("DSH_CMD", "dsh")  # dsh 命令路径（PATH 或 .env 配置 DSH_CMD）
+# 源项目默认用本机 npx 缓存里的 dsh（不在 PATH）；环境变量 DSH_CMD 可覆盖
+DSH_CMD = os.getenv("DSH_CMD", "dsh")
 
 
 # --------------------------------------------------------------------------
@@ -159,6 +160,58 @@ class Api:
         try:
             import rag_server as core
             return core.open_doc_kb(doc, 1)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ---- 语料管理 / 筛选检索 / 编辑器（第三步） ----
+    def corpus_list(self):
+        return mcp_call("corpus_list", {}, timeout=60)
+
+    def corpus_switch(self, name):
+        return mcp_call("corpus_switch", {"name": name}, timeout=60)
+
+    def corpus_create(self, name, mineru_out):
+        args = {"name": name}
+        if mineru_out:
+            args["mineru_out"] = mineru_out
+        return mcp_call("corpus_create", args, timeout=60)
+
+    def meta_vocab(self):
+        try:
+            req = urllib.request.Request(MCP_BASE + "/meta/vocab")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def survey_list(self):
+        try:
+            req = urllib.request.Request(MCP_BASE + "/survey/list")
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def search_filters(self, query, methods=None, tasks=None, year_min=None,
+                       year_max=None, author=None, top_k=8):
+        args = {"query": query, "top_k": int(top_k or 8)}
+        if methods:
+            args["methods"] = list(methods)
+        if tasks:
+            args["tasks"] = list(tasks)
+        if year_min:
+            args["year_min"] = int(year_min)
+        if year_max:
+            args["year_max"] = int(year_max)
+        if author:
+            args["authors"] = [str(author)]
+        return mcp_call("search", args, timeout=120)
+
+    def open_url(self, url):
+        import webbrowser
+        try:
+            webbrowser.open(url)
+            return {"ok": True, "msg": "已在浏览器打开"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 

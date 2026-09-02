@@ -58,24 +58,38 @@ def _get_reranker():
 # ---------- 中文分词（BM25 需要） ----------
 
 _jieba_dict_loaded = False
+_jieba_dict_path = None
+
+
+def _dict_file() -> str:
+    """当前语料的 jieba 用户词典；语料无 dict.txt 时回退内置金融词典。"""
+    try:
+        from rag_core import corpus
+        p = corpus.runtime_paths()
+        cand = p.get("dict") or ""
+        if cand and os.path.isfile(cand):
+            return cand
+    except Exception:
+        pass
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "finance_dict.txt")
 
 
 def _ensure_jieba_dict():
-    """懒加载金融领域用户词典（一次进程一次）：保证专业术语不被切碎。"""
-    global _jieba_dict_loaded
-    if _jieba_dict_loaded:
+    """懒加载用户词典；语料切换（词典路径变化）后自动重置重载，旧语料术语不残留。"""
+    global _jieba_dict_loaded, _jieba_dict_path
+    path = _dict_file()
+    if _jieba_dict_loaded and _jieba_dict_path == path:
         return
-    _jieba_dict_loaded = True
     try:
         import jieba
-        dict_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "finance_dict.txt"
-        )
-        if os.path.isfile(dict_path):
+        jieba.dt = jieba.Tokenizer()   # 重置分词器：清掉旧用户词典
+        if os.path.isfile(path):
             try:
-                jieba.load_userdict(dict_path)
+                jieba.load_userdict(path)
             except Exception:
                 pass
+        _jieba_dict_loaded = True
+        _jieba_dict_path = path
     except ImportError:
         pass
 
