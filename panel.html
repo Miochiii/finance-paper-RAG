@@ -140,7 +140,7 @@ const httpApi = {
   },
   start_mcp: () => ({ ok: false, msg: '浏览器模式：请手动运行 启动RAG服务.bat' }),
   start_dsh: () => ({ ok: false, msg: '浏览器模式：无法启动 DSH' }),
-  open_doc: (doc) => httpCall('POST', '/open', { doc, page: 1 }),
+  open_doc: (doc, page) => httpCall('POST', '/open', { doc, page: page || 1 }),
   rebuild: (mode = 'hmm') => { httpCall('POST', '/build', { chunker: mode }); return { ok: true, msg: '重建已提交（后台执行，约 2~5 分钟）' }; },
   ingest: () => { httpCall('POST', '/ingest', {}); return { ok: true, msg: '增量更新已提交（后台执行）' }; },
   last_build: () => ({ ok: null, msg: '浏览器模式无任务记录' }),
@@ -530,10 +530,12 @@ async function doSearch() {
 async function openHit(i) {
   const hit = qHits[i];
   if (!hit) return;
-  const name = (hit.metadata && hit.metadata.source) || '';
+  const m = hit.metadata || {};
+  const name = m.source || '';
+  const page = m.page_start || 1;   // 跳到该证据块所在页
   try {
-    const r = await window.pywebview.api.open_doc(name);
-    document.getElementById('msg').textContent = (r && r.ok) ? '已打开: ' + name : '打开失败: ' + ((r && r.error) || '');
+    const r = await window.pywebview.api.open_doc(name, page);
+    document.getElementById('msg').textContent = (r && r.ok) ? ('已打开: ' + name + '（第' + page + '页）') : '打开失败: ' + ((r && r.error) || '');
   } catch (e) { document.getElementById('msg').textContent = '打开失败: ' + e; }
 }
 

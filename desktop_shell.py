@@ -155,11 +155,11 @@ class Api:
     def last_build(self):
         return self._last_build if self._last_build is not None else {"ok": None, "msg": "尚无重建任务"}
 
-    def open_doc(self, doc):
-        """打开知识库中某文档的原始 PDF（面板文档列表点击调用）。"""
+    def open_doc(self, doc, page=1):
+        """打开知识库中某文档的原始 PDF 并跳到指定页（面板文档列表/筛选检索点击调用）。"""
         try:
             import rag_server as core
-            return core.open_doc_kb(doc, 1)
+            return core.open_doc_kb(doc, int(page or 1))
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
