@@ -308,7 +308,7 @@ async function svGenerateOutline() {
   svMsg('生成大纲中（检索 + LLM，约 10~30 秒）...');
   try {
     const r = await window.pywebview.api.survey_outline(t);
-    if (r && r.ok) { sv.outline = r.sections || []; svRenderOutline(); svMsg('大纲已生成，可编辑后保存'); }
+    if (r && r.ok) { sv.outline = r.sections || []; svRenderOutline(); svMsg('大纲已生成，可编辑后保存'); loadSurveyTopics(); }
     else svMsg('失败: ' + ((r && r.error) || '未知'));
   } catch (e) { svMsg('调用失败: ' + e); }
 }
@@ -335,6 +335,7 @@ async function svSaveOutline() {
   try {
     const r = await window.pywebview.api.survey_outline(t, sv.outline);
     svMsg(r && r.ok ? '大纲已保存（手动模式）' : '失败: ' + ((r && r.error) || ''));
+    loadSurveyTopics();
   } catch (e) { svMsg('调用失败: ' + e); }
 }
 
@@ -343,7 +344,7 @@ async function svDraft() {
   svMsg('逐节生成草稿中（每节约 20~40 秒，已生成节自动跳过）...');
   try {
     const r = await window.pywebview.api.survey_draft(t);
-    if (r && r.ok) { svMsg(`草稿完成：${r.sections} 节 / ${r.total_chars} 字 / ${r.refs} 条引用`); svRefreshDraft(); }
+    if (r && r.ok) { svMsg(`草稿完成：${r.sections} 节 / ${r.total_chars} 字 / ${r.refs} 条引用`); svRefreshDraft(); loadSurveyTopics(); }
     else svMsg('失败: ' + ((r && r.error) || '未知'));
   } catch (e) { svMsg('调用失败: ' + e); }
 }
@@ -408,6 +409,7 @@ async function svExport() {
   try {
     const r = await window.pywebview.api.survey_export(t);
     svMsg(r && r.ok ? '已导出: ' + r.path : '失败: ' + ((r && r.error) || ''));
+    loadSurveyTopics();
   } catch (e) { svMsg('调用失败: ' + e); }
 }
 
@@ -433,6 +435,7 @@ async function corpusRefresh() {
       ? `激活语料：${cur.name}（${cur.chunks} 块${cur.build && cur.build.status === 'running' ? '，后台构建中' : ''}）`
       : '无激活语料';
     await vocabRefresh();
+    await loadSurveyTopics();   // 综述按语料隔离，切换后同步刷新
   } catch (e) {
     document.getElementById('corpus-info').textContent = '语料加载失败: ' + e;
   }
