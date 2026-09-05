@@ -34,6 +34,7 @@ DSH_CMD = os.getenv("DSH_CMD", "dsh")
 # DSH 启动日志（dsh web 会打印带 token 的访问地址，认证必需）
 DSH_LOG = os.path.join(os.environ.get("TEMP", BASE), "dsh_web_start.log")
 _DSH_URL_RE = re.compile(r"https?://(?:127\.0\.0\.1|localhost):3080[^\s\"']*")
+_MAIN_WIN = None   # 桌面主窗口句柄（start_dsh 就绪后向其加载 DSH 页面）
 
 
 def _dsh_exe():
@@ -176,17 +177,26 @@ class Api:
         return {"ok": False, "error": f"未找到 {bat}"}
 
     def start_dsh(self):
-        """启动 DSH 并自动打开带 token 的访问地址（认证必需）。"""
-        import webbrowser
+        """手动启动 DSH：后台拉起 dsh web，解析带 token 的地址后
+        自动加载进桌面主窗口（不开浏览器）；主窗口不可用时回退浏览器。"""
         if _url_ok(DSH_URL, 2.0):
-            return {"ok": True, "msg": "DSH 已在运行（3080）。若页面提示需要认证，请用 dsh web 打印的带 token 地址打开"}
+            return {"ok": True, "msg": "DSH 已在运行（3080）——主窗口刷新即可；若提示需认证，请关闭 DSH 后重试本按钮"}
         if not _spawn_dsh():
             return {"ok": False, "error": f"未找到 dsh 命令（DSH_CMD={DSH_CMD}），请手动启动 DSH"}
 
-        def _open_when_ready():
-            webbrowser.open(_wait_dsh_url(60))
-        threading.Thread(target=_open_when_ready, daemon=True).start()
-        return {"ok": True, "msg": "DSH 启动中，检测到带 token 的地址后自动在浏览器打开（最多等 60 秒）"}
+        def _load_when_ready():
+            url = _wait_dsh_url(60)
+            try:
+                if _MAIN_WIN is not None:
+                    _MAIN_WIN.load_url(url)   # 加载到桌面主窗口，不开浏览器
+                    return
+            except Exception:
+                pass
+            import webbrowser
+            webbrowser.open(url)              # 兜底：主窗口不可用才开浏览器
+
+        threading.Thread(target=_load_when_ready, daemon=True).start()
+        return {"ok": True, "msg": "DSH 启动中，就绪后自动加载到桌面主窗口（约 10~30 秒）"}
 
     def rebuild(self, chunker="hmm"):
         def _run():
@@ -304,7 +314,10 @@ class Api:
 
 
 def main():
+    global _MAIN_WIN
     api = Api()
+    # 主窗口：内嵌 DSH agent 界面（启动后点面板「启动 DSH」，就绪自动加载进来）
+    _MAIN_WIN = webview.create_window("DeepSeek Harness Agent", DSH_URL, width=1200, height=820)
     # 侧栏窗口：知识库面板
     webview.create_window(
         "知识库面板",
@@ -315,11 +328,6 @@ def main():
         x=1230,
         y=60,
     )
-    # 主窗口：内嵌 DSH agent 界面（自动拉起 DSH 并取带 token 的地址，认证必需）
-    dsh_url = DSH_URL
-    if not _url_ok(DSH_URL, 2.0) and _spawn_dsh():
-        dsh_url = _wait_dsh_url(60)
-    webview.create_window("DeepSeek Harness Agent", dsh_url, width=1200, height=820)
     webview.start()
 
 
