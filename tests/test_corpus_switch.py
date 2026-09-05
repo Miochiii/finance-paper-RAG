@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """多语料切换（第二步）测试：全部在 work_tmp 假布局上，不碰真实数据。"""
 import json
 import os
@@ -75,6 +75,30 @@ class TestCorpusApi:
         p = cp.runtime_paths()
         assert p["kb"] == cfg_kb
         assert p["docs"] == os.path.join(work_tmp, "cfg_docs")
+
+
+class TestCorpusDeleteRename:
+    def test_delete_guards(self, monkeypatch, work_tmp):
+        root = _fake_corpora(monkeypatch, work_tmp)
+        cp.create("语料X")
+        cp.switch("语料X")
+        assert cp.delete("语料X", confirm=True)["ok"] is False   # 激活语料拒绝
+        assert cp.delete("语料X")["ok"] is False                  # 未确认拒绝
+        cp.create("语料Y")
+        assert cp.delete("语料Y", confirm=True)["ok"]
+        assert not os.path.isdir(os.path.join(root, "语料Y"))
+
+    def test_rename_updates_current_when_active(self, monkeypatch, work_tmp):
+        root = _fake_corpora(monkeypatch, work_tmp)
+        cp.create("语料Z")
+        cp.switch("语料Z")
+        assert cp.rename("语料Z", "语料Z2")["ok"]
+        assert cp.read_current() == "语料Z2"
+        assert os.path.isdir(os.path.join(root, "语料Z2"))
+        assert cp.rename("语料Z2", "语料Z2")["ok"]              # 同名幂等
+        assert cp.rename("不存在", "x")["ok"] is False
+        cp.create("语料W")
+        assert cp.rename("语料Z2", "语料W")["ok"] is False      # 目标已存在
 
 
 class TestServerCorpusIntegration:

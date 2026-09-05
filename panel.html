@@ -66,6 +66,8 @@
     <select id="corpus-sel" style="flex:1"></select>
     <button onclick="corpusSwitch()">切换语料</button>
     <button class="small" onclick="corpusRefresh()">🔄</button>
+    <button class="small" onclick="corpusRename()">重命名</button>
+    <button class="small" onclick="corpusDelete()">删除</button>
   </div>
   <div id="corpus-info" style="font-size:12px;color:#555;margin:4px 0">加载中...</div>
   <div class="row">
@@ -147,6 +149,8 @@ const httpApi = {
   corpus_list: () => httpCall('GET', '/corpus/list'),
   corpus_switch: (name) => httpCall('POST', '/corpus/switch', { name }),
   corpus_create: (name, mineru_out) => httpCall('POST', '/corpus/create', { name, mineru_out: mineru_out || null }),
+  corpus_delete: (name, confirm) => httpCall('POST', '/corpus/delete', { name, confirm: !!confirm }),
+  corpus_rename: (old, new) => httpCall('POST', '/corpus/rename', { old, new }),
   meta_vocab: () => httpCall('GET', '/meta/vocab'),
   survey_list: () => httpCall('GET', '/survey/list'),
   search_filters: (query, methods, tasks, year_min, year_max, author, top_k) => {
@@ -468,6 +472,31 @@ async function corpusCreate() {
   document.getElementById('corpus-new-name').value = '';
   document.getElementById('corpus-new-mineru').value = '';
   setTimeout(corpusRefresh, 2000);
+}
+
+async function corpusRename() {
+  const name = document.getElementById('corpus-sel').value;
+  const neu = prompt('重命名语料为：', name);
+  if (!neu || neu.trim() === name) return;
+  const msg = document.getElementById('msg');
+  try {
+    const r = await window.pywebview.api.corpus_rename(name, neu.trim());
+    msg.textContent = (r && r.ok) ? ('已重命名：' + name + ' → ' + r.name) : '失败: ' + ((r && r.error) || '');
+  } catch (e) { msg.textContent = '失败: ' + e; }
+  await refresh();
+  await corpusRefresh();
+}
+
+async function corpusDelete() {
+  const name = document.getElementById('corpus-sel').value;
+  if (!window.confirm('确认删除语料「' + name + '」？整个语料目录将被删除，不可恢复！')) return;
+  const msg = document.getElementById('msg');
+  try {
+    const r = await window.pywebview.api.corpus_delete(name, true);
+    msg.textContent = (r && r.ok) ? ('已删除：' + name) : '失败: ' + ((r && r.error) || '');
+  } catch (e) { msg.textContent = '失败: ' + e; }
+  await refresh();
+  await corpusRefresh();
 }
 
 // ================= 筛选检索（第三步） =================

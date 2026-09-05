@@ -262,6 +262,49 @@ def create(name: str) -> Dict:
     return {"ok": True, "name": str(name).strip(), "paths": paths(name)}
 
 
+def delete(name: str, confirm: bool = False) -> Dict:
+    """删除语料（递归删除整个语料目录，不可恢复）。
+    安全阀：拒绝删除当前激活语料；confirm 必须为 True。"""
+    if not confirm:
+        return {"ok": False, "error": "删除不可恢复，请确认后重试（confirm=true）"}
+    err = validate_name(name)
+    if err:
+        return {"ok": False, "error": err}
+    target = corpus_dir(name)
+    if not os.path.isdir(target):
+        return {"ok": False, "error": f"语料不存在: {name}"}
+    if (read_current() or "") == str(name).strip():
+        return {"ok": False, "error": f"语料 {name} 当前处于激活状态，请先切换到其他语料再删除"}
+    try:
+        shutil.rmtree(target)
+    except OSError as e:
+        return {"ok": False, "error": f"删除失败（可能有程序占用文件）: {e}"}
+    return {"ok": True, "name": str(name).strip()}
+
+
+def rename(old: str, new: str) -> Dict:
+    """重命名语料；若被重命名的是激活语料，current.json 同步更新。"""
+    o, n = str(old or "").strip(), str(new or "").strip()
+    err = validate_name(n)
+    if err:
+        return {"ok": False, "error": err}
+    src = corpus_dir(o)
+    dst = corpus_dir(n)
+    if not os.path.isdir(src):
+        return {"ok": False, "error": f"语料不存在: {o}"}
+    if o == n:
+        return {"ok": True, "name": n}
+    if os.path.exists(dst):
+        return {"ok": False, "error": f"目标语料名已存在: {n}"}
+    os.rename(src, dst)
+    if (read_current() or "") == o:
+        tmp = current_file() + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"name": n}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, current_file())
+    return {"ok": True, "old": o, "name": n}
+
+
 def runtime_paths(name: Optional[str] = None) -> Dict[str, str]:
     """激活语料的运行时路径（调用时解析，随 current.json 变化）。
     显式环境变量覆盖优先（全局锁定，不随语料切换）。

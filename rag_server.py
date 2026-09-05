@@ -7,12 +7,14 @@ rag_server.py —— 一体化本地 RAG 服务（HTTP API + MCP 双协议，单
       GET  /health /stats /editor /corpus/list /meta/vocab /survey/list
            /survey/status /survey/section /survey/editor_data /survey/download
       POST /build /search /ask /open /ingest /corpus/switch /corpus/create
+           /corpus/delete /corpus/rename
            /direction/analyze /direction/compare
            /survey/outline /survey/draft /survey/rewrite /survey/edit /survey/export
            /survey/rewrite_selection /survey/editor_save /survey/export_docx
-  - MCP 端点（DeepSeek Harness 注册工具）：/mcp，18 个工具
+  - MCP 端点（DeepSeek Harness 注册工具）：/mcp，20 个工具
     （search / stats / build / ingest / ask / open_doc / corpus_list /
-      corpus_switch / corpus_create / direction_analyze / direction_compare /
+      corpus_switch / corpus_create / corpus_delete / corpus_rename /
+      direction_analyze / direction_compare /
       survey_outline / survey_draft / survey_rewrite / survey_edit /
       survey_section / survey_status / survey_export，DSH 中为 mcp__rag__*）
 
@@ -135,6 +137,16 @@ class CorpusCreateReq(BaseModel):
     mineru_out: str = None   # 提供则后台建库
     docs_dir: str = None
     chunker: str = "hmm"
+
+
+class CorpusDeleteReq(BaseModel):
+    name: str
+    confirm: bool = False    # 删除不可恢复，必须显式确认
+
+
+class CorpusRenameReq(BaseModel):
+    old: str
+    new: str
 
 
 class DirectionReq(BaseModel):
@@ -265,8 +277,35 @@ def get_retriever(kb_file: str = None, vector_db_path: str = None, cache: bool =
     return retriever
 
 
-# ---- 语料管理（多语料：激活/切换/新建/词汇表/综述列表）----
-_BUILD_JOBS = {}   # 语料名 -> {"status": running|done|failed, "msg": str}
+# ---- 语料管理（多语料：激活/切换/新建/删除/重命名/词汇表/综述列表）----
+_BUILD_JOBS = {}   # 语料名 -> {"status": running|done|failed|interrupted, "msg": str}
+_BUILD_JOBS_FILE = os.path.join(config.CORPORA_DIR, "build_jobs.json")  # 落盘：服务重启不丢状态
+
+
+def _load_build_jobs():
+    """启动时读回构建任务状态；残留的 running 标记为 interrupted（重启打断）。"""
+    global _BUILD_JOBS
+    try:
+        with open(_BUILD_JOBS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            for name, job in data.items():
+                if isinstance(job, dict) and job.get("status") == "running":
+                    job = {"status": "interrupted", "msg": "上次构建被服务重启打断"}
+                _BUILD_JOBS[name] = job
+    except Exception:
+        pass
+
+
+def _save_build_jobs():
+    try:
+        os.makedirs(os.path.dirname(_BUILD_JOBS_FILE), exist_ok=True)
+        tmp = _BUILD_JOBS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_BUILD_JOBS, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _BUILD_JOBS_FILE)
+    except OSError:
+        pass
 
 
 def _refresh_paths():
@@ -325,6 +364,7 @@ def create_corpus_kb(name: str, mineru_out: str = None, docs_dir: str = None,
         return r
     if mineru_out and str(mineru_out).strip():
         _BUILD_JOBS[name] = {"status": "running", "msg": "构建中…"}
+        _save_build_jobs()
         import threading
 
         def _run():
@@ -334,12 +374,47 @@ def create_corpus_kb(name: str, mineru_out: str = None, docs_dir: str = None,
                 _BUILD_JOBS[name] = {"status": "done", "msg": "构建完成"}
             except Exception as e:
                 _BUILD_JOBS[name] = {"status": "failed", "msg": str(e)[:200]}
+            _save_build_jobs()
 
         threading.Thread(target=_run, daemon=True).start()
         return {"ok": True, "name": name, "building": True,
                 "msg": "语料已创建，后台构建中（/corpus/list 查看进度）"}
     return {"ok": True, "name": name, "building": False,
             "msg": "语料目录已创建（未提供 mineru_out；可稍后 build 或放入 MinerU 产物后重试）"}
+
+
+def delete_corpus_kb(name: str, confirm: bool = False) -> dict:
+    """删除语料（需 confirm；拒绝删除激活语料）。"""
+    from rag_core import corpus
+    r = corpus.delete(name, confirm=confirm)
+    if not r.get("ok"):
+        return r
+    if name in _BUILD_JOBS:
+        del _BUILD_JOBS[name]
+        _save_build_jobs()
+    return {"ok": True, "name": r["name"], "msg": "语料已删除"}
+
+
+def rename_corpus_kb(old: str, new: str) -> dict:
+    """重命名语料；若为激活语料，路径全局量与检索器一并刷新。"""
+    from rag_core import corpus
+    was_active = (corpus.read_current() or "") == old
+    r = corpus.rename(old, new)
+    if not r.get("ok"):
+        return r
+    if old in _BUILD_JOBS:
+        _BUILD_JOBS[new] = _BUILD_JOBS.pop(old)
+        _save_build_jobs()
+    if was_active:
+        if _state["retriever"] is not None:
+            try:
+                _state["retriever"].close()
+            except Exception:
+                pass
+            _state["retriever"] = None
+        _state["kb_fp"] = None
+        _refresh_paths()
+    return {"ok": True, "old": old, "name": new, "active": corpus.read_current()}
 
 
 def meta_vocab_kb() -> dict:
@@ -961,6 +1036,16 @@ def corpus_create(req: CorpusCreateReq):
     return create_corpus_kb(req.name, req.mineru_out, req.docs_dir, req.chunker)
 
 
+@app.post("/corpus/delete")
+def corpus_delete(req: CorpusDeleteReq):
+    return delete_corpus_kb(req.name, req.confirm)
+
+
+@app.post("/corpus/rename")
+def corpus_rename(req: CorpusRenameReq):
+    return rename_corpus_kb(req.old, req.new)
+
+
 @app.get("/meta/vocab")
 def meta_vocab():
     return meta_vocab_kb()
@@ -1181,6 +1266,19 @@ def mcp_corpus_create(name: str, mineru_out: str = None, chunker: str = "hmm") -
     return create_corpus_kb(name, mineru_out=mineru_out, chunker=chunker)
 
 
+@mcp.tool(name="corpus_delete")
+def mcp_corpus_delete(name: str, confirm: bool = False) -> dict:
+    """删除语料（递归删除整个语料目录，**不可恢复**）。
+    必须 confirm=True 且该语料不是当前激活语料才执行。"""
+    return delete_corpus_kb(name, confirm=confirm)
+
+
+@mcp.tool(name="corpus_rename")
+def mcp_corpus_rename(old: str, new: str) -> dict:
+    """重命名语料；若重命名的是当前激活语料，路径与检索器自动刷新。"""
+    return rename_corpus_kb(old, new)
+
+
 @mcp.tool(name="ask")
 def mcp_ask(question: str, top_k: int = 5, year_min: int = None, year_max: int = None,
             authors: list = None, methods: list = None, tasks: list = None) -> dict:
@@ -1307,6 +1405,7 @@ def mcp_survey_export(topic: str, format: str = "markdown") -> dict:
 
 
 # 按激活语料初始化路径全局量（之后切换语料时由 switch_corpus_kb 再次刷新）
+_load_build_jobs()
 _refresh_paths()
 
 # 挂载 MCP（streamable-http 协议，路径 /mcp）。

@@ -186,3 +186,15 @@ def test_open_doc_kb_falls_back_when_pdf_path_stale(monkeypatch, work_tmp):
     monkeypatch.setattr(po, "open_pdf_page", lambda p, page=1: opened.update(path=p) or {"ok": True})
     r = core.open_doc_kb("论文A.pdf", 3)
     assert r["ok"] and opened["path"] == real_pdf
+
+
+def test_build_jobs_persist_and_interrupt(monkeypatch, work_tmp):
+    """构建任务状态落盘：保存后重载，残留的 running 标记为 interrupted。"""
+    f = os.path.join(work_tmp, "bj.json")
+    monkeypatch.setattr(core, "_BUILD_JOBS_FILE", f)
+    monkeypatch.setattr(core, "_BUILD_JOBS", {})
+    core._BUILD_JOBS["语料A"] = {"status": "running", "msg": "构建中…"}
+    core._save_build_jobs()
+    monkeypatch.setattr(core, "_BUILD_JOBS", {})
+    core._load_build_jobs()
+    assert core._BUILD_JOBS["语料A"]["status"] == "interrupted"

@@ -176,6 +176,12 @@ class Api:
             args["mineru_out"] = mineru_out
         return mcp_call("corpus_create", args, timeout=60)
 
+    def corpus_delete(self, name, confirm=False):
+        return mcp_call("corpus_delete", {"name": name, "confirm": bool(confirm)}, timeout=120)
+
+    def corpus_rename(self, old, new):
+        return mcp_call("corpus_rename", {"old": old, "new": new}, timeout=120)
+
     def meta_vocab(self):
         try:
             req = urllib.request.Request(MCP_BASE + "/meta/vocab")
