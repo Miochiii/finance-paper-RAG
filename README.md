@@ -169,7 +169,9 @@ python -m pytest tests -q     # 全部为纯函数测试，不需要 GPU 与服�
 
 内置评测框架对 5 种分块方式做受控消融（唯一变量 = 分块方式，检索栈与生成配置全部固定），支持检索指标、生成指标、LLM-as-judge 打分与两两配对 t 检验 / Wilcoxon。
 
-在自建金融论文语料（38 篇 MinerU 解析 + 40 条人工标注问答，数据非公开）上的参考结果（`--skip-gen` 检索指标均值，n=40）：
+在自建金融论文语料（38 篇 MinerU 解析 + 40 条人工标注问答，数据非公开）上的参考结果（n=40）：
+
+**检索指标**（`--skip-gen` 均值）：
 
 | 指标 | fixed | discourse | hybrid | hmm（默认） | hmm_fixed_k |
 |---|---|---|---|---|---|
@@ -180,11 +182,21 @@ python -m pytest tests -q     # 全部为纯函数测试，不需要 GPU 与服�
 | mrr_c | 0.3937 | **0.4946** | 0.4904 | 0.4842 | 0.4479 |
 | ndcg@5_c | 0.3120 | 0.3860 | 0.3916 | **0.3930** | 0.3769 |
 
-结论：① 文档级召回 ≥ 92.5%，检索栈对分块方式稳健，是系统质量的来源；② 块级证据召回（0.31–0.52）是主要短板，由"引用带页码 + 点击直开 PDF 对应页"兜底；③ 5 方法两两配对检验全部 p > 0.05（最接近的 fixed vs hybrid 块级 p≈0.057），分块方式不是质量瓶颈。
+**生成指标**（完整跑批均值，DeepSeek 生成 + LLM-as-judge 1~5 分）：
+
+| 指标 | fixed | discourse | hybrid | hmm（默认） | hmm_fixed_k |
+|---|---|---|---|---|---|
+| judge 正确性 | 4.10 | 4.10 | **4.35** | 4.10 | 4.30 |
+| judge 忠实性 | 4.70 | 4.83 | **4.88** | 4.65 | 4.73 |
+| F1（字符级） | 0.159 | **0.166** | 0.158 | 0.154 | 0.164 |
+| EM | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+结论：① 文档级召回 ≥ 92.5%，检索栈对分块方式稳健，是系统质量的来源；② 块级证据召回（0.31–0.52）是主要短板，由"引用带页码 + 点击直开 PDF 对应页"兜底；③ **生成质量稳定**——正确性 4.1~4.4/5、忠实性 4.65~4.88/5，答案严格基于检索证据、不编造；④ 分块方式对检索与生成均无统计显著影响（90 组配对检验仅 discourse vs hmm 的 F1 一项 Wilcoxon p=0.039，多重比较下视为噪声；其余全部 p > 0.05）。EM/F1 低是因为标准答案是短句、生成答案是长段落，字符级匹配天然困难——生成质量以 judge 打分为准。
 
 ```bash
 python build_docs_cache_v2.py --mineru-out <MinerU输出> --save data/docs_cache_v2.json
-python evaluate.py --methods all --source finance --skip-gen --docs-cache data/docs_cache_v2.json
+python evaluate.py --methods all --source finance --skip-gen --docs-cache data/docs_cache_v2.json   # 仅检索指标
+python evaluate.py --methods all --source finance --docs-cache data/docs_cache_v2.json             # 完整（含生成与 judge，约 1.5h / 1~3 元 API）
 python evaluate.py --ttest-only --methods all --source finance
 ```
 
