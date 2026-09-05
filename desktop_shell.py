@@ -6,17 +6,19 @@ desktop_shell.py —— 桌面壳（PyWebview 双窗口）
   侧栏窗口：知识库面板（本地 HTML，经 MCP 协议调用 rag 服务，与 agent 用同一服务进程）
 
 面板功能：服务状态灯 / 启动 MCP 服务 / 打开 DSH / 文档列表 / 重建知识库。
-注意：面板通过 MCP(8001) 调用，与 agent 工具共用同一个服务进程——不要同时再开
-HTTP 服务（rag_server.py 的 8000 端口），否则会争抢 qdrant 本地存储锁。
+注意：面板通过一体化服务（HTTP+MCP 同端口 8000）调用，与 agent 工具共用
+同一个服务进程——不要再启动第二个会加载检索器的进程，否则争抢 qdrant 锁。
 
 启动：python desktop_shell.py（或双击 启动桌面端.bat）
 """
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 
 import webview
@@ -28,6 +30,51 @@ DSH_URL = "http://127.0.0.1:3080"
 MCP_BASE = "http://127.0.0.1:8000"   # 一体化服务：HTTP + MCP 同端口
 # 源项目默认用本机 npx 缓存里的 dsh（不在 PATH）；环境变量 DSH_CMD 可覆盖
 DSH_CMD = os.getenv("DSH_CMD", "dsh")
+
+# DSH 启动日志（dsh web 会打印带 token 的访问地址，认证必需）
+DSH_LOG = os.path.join(os.environ.get("TEMP", BASE), "dsh_web_start.log")
+_DSH_URL_RE = re.compile(r"https?://(?:127\.0\.0\.1|localhost):3080[^\s\"']*")
+
+
+def _dsh_exe():
+    import shutil
+    return DSH_CMD if os.path.exists(DSH_CMD) else shutil.which(DSH_CMD)
+
+
+def _spawn_dsh() -> bool:
+    """后台启动 dsh web（无控制台窗口，日志落盘供解析 token 地址）。"""
+    exe = _dsh_exe()
+    if not exe:
+        return False
+    try:
+        os.remove(DSH_LOG)
+    except OSError:
+        pass
+    kwargs = {"cwd": BASE,
+              "stdout": open(DSH_LOG, "w", encoding="utf-8", errors="ignore"),
+              "stderr": subprocess.STDOUT}
+    if hasattr(subprocess, "CREATE_NO_WINDOW"):
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    subprocess.Popen([exe, "web", "--no-open"], **kwargs)
+    return True
+
+
+def _wait_dsh_url(timeout_s: int = 60) -> str:
+    """轮询启动日志取带 token 的访问地址；已在运行/超时返回普通地址。"""
+    for _ in range(timeout_s):
+        time.sleep(1)
+        try:
+            with open(DSH_LOG, "r", encoding="utf-8", errors="ignore") as f:
+                txt = f.read()
+            m = _DSH_URL_RE.search(txt)
+            if m:
+                return m.group(0)
+            low = txt.lower()
+            if "eaddrinuse" in low or "address already in use" in low:
+                return DSH_URL   # 已在运行：无法获知旧 token，返回普通地址
+        except OSError:
+            pass
+    return DSH_URL
 
 
 # --------------------------------------------------------------------------
@@ -129,12 +176,17 @@ class Api:
         return {"ok": False, "error": f"未找到 {bat}"}
 
     def start_dsh(self):
-        import shutil
-        dsh_exe = DSH_CMD if os.path.exists(DSH_CMD) else shutil.which(DSH_CMD)
-        if dsh_exe:
-            subprocess.Popen([dsh_exe, "web", "--no-open"])
-            return {"ok": True, "msg": "DSH 启动中，约 10~30 秒后点刷新"}
-        return {"ok": False, "error": f"未找到 dsh 命令（DSH_CMD={DSH_CMD}），请手动启动 DSH"}
+        """启动 DSH 并自动打开带 token 的访问地址（认证必需）。"""
+        import webbrowser
+        if _url_ok(DSH_URL, 2.0):
+            return {"ok": True, "msg": "DSH 已在运行（3080）。若页面提示需要认证，请用 dsh web 打印的带 token 地址打开"}
+        if not _spawn_dsh():
+            return {"ok": False, "error": f"未找到 dsh 命令（DSH_CMD={DSH_CMD}），请手动启动 DSH"}
+
+        def _open_when_ready():
+            webbrowser.open(_wait_dsh_url(60))
+        threading.Thread(target=_open_when_ready, daemon=True).start()
+        return {"ok": True, "msg": "DSH 启动中，检测到带 token 的地址后自动在浏览器打开（最多等 60 秒）"}
 
     def rebuild(self, chunker="hmm"):
         def _run():
@@ -253,8 +305,6 @@ class Api:
 
 def main():
     api = Api()
-    # 主窗口：内嵌 DSH agent 界面
-    webview.create_window("DeepSeek Harness Agent", DSH_URL, width=1200, height=820)
     # 侧栏窗口：知识库面板
     webview.create_window(
         "知识库面板",
@@ -265,6 +315,11 @@ def main():
         x=1230,
         y=60,
     )
+    # 主窗口：内嵌 DSH agent 界面（自动拉起 DSH 并取带 token 的地址，认证必需）
+    dsh_url = DSH_URL
+    if not _url_ok(DSH_URL, 2.0) and _spawn_dsh():
+        dsh_url = _wait_dsh_url(60)
+    webview.create_window("DeepSeek Harness Agent", dsh_url, width=1200, height=820)
     webview.start()
 
 
