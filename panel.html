@@ -35,9 +35,6 @@
 <body>
   <h2>🔌 服务状态</h2>
   <div class="row">
-    <span><span id="dsh-dot" class="dot bad"></span>DSH Agent</span>
-  </div>
-  <div class="row">
     <button onclick="refresh()">🔄 刷新状态</button>
     <button onclick="apiCall('start_mcp', {}, '正在启动 RAG 服务...')">▶ 启动 RAG 服务</button>
     <button onclick="apiCall('start_dsh', {}, '正在启动 DSH...')">▶ 启动 DSH</button>
@@ -202,8 +199,6 @@ async function apiCall(name, args, msg) {
 async function refresh() {
   let st = {};
   try { st = await window.pywebview.api.get_status(); } catch (e) { st = {}; }
-  const dshDot = document.getElementById('dsh-dot');
-  dshDot.className = 'dot ' + (st.dsh ? 'ok' : 'bad');
   const tbody = document.querySelector('#docs tbody');
   const kb = (st.kb && st.kb.by_source) ? st.kb.by_source : null;
   docNames.length = 0;
