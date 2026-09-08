@@ -189,6 +189,34 @@ def _rrf_fusion(
     return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
 
+def _mmr_pick(scores: List[float], sim, k: int, lam: float) -> List[int]:
+    """MMR 贪心选取（纯函数，便于测试）：
+    - 第一个取相关分最高者；
+    - 之后每次取 argmax(相关分 - λ·与已选块的最大相似度)；
+    - lam=0 退化为按分数排序；n <= k 时全选。"""
+    n = len(scores)
+    if n == 0:
+        return []
+    if n <= k:
+        return list(range(n))
+    first = max(range(n), key=lambda i: scores[i])
+    selected, sel_idx = [first], {first}
+    while len(selected) < k:
+        best_i, best_v = None, -float("inf")
+        for i in range(n):
+            if i in sel_idx:
+                continue
+            max_sim = max(sim[i][j] for j in sel_idx)
+            v = scores[i] - lam * max_sim
+            if v > best_v:
+                best_i, best_v = i, v
+        if best_i is None:
+            break
+        selected.append(best_i)
+        sel_idx.add(best_i)
+    return selected
+
+
 # ========== 主类 ==========
 
 class HybridRetriever:
@@ -357,6 +385,9 @@ class HybridRetriever:
         rerank_k: int = 5,
         keywords: List[str] = None,
         filters: Optional[Dict] = None,
+        hyde_text: Optional[str] = None,
+        mmr: bool = True,
+        mmr_lambda: float = 0.6,
     ) -> List[Dict]:
         """
         混合检索主入口。
@@ -371,6 +402,10 @@ class HybridRetriever:
                 {"year_min": 2020, "year_max": 2024,
                  "authors": ["张三"], "methods": ["随机森林"], "tasks": ["信贷风控"]}
                 过滤在候选层生效（BM25 掩码 + 向量过采样后过滤），不影响索引。
+            hyde_text: HyDE 假设文档（可选）——提供时向量检索用它替代原问题，
+                BM25 仍用原问题+关键词（两路互补，假设偏了也有兜底）。
+            mmr: 最终选取是否启用 MMR 多样性（默认开，避免同一文档相邻块霸榜）。
+            mmr_lambda: MMR 多样性权重（0=纯相关分排序；越大越倾向多样化）。
 
         返回:
             [{index, text, metadata}, ...]
@@ -398,7 +433,7 @@ class HybridRetriever:
         t0 = _time.perf_counter()
         bm25_hits = self._bm25_search(bm25_input, bm25_k, mask)
         t1 = _time.perf_counter()
-        vector_hits = self._vector_search(query, vector_k, mask)
+        vector_hits = self._vector_search(hyde_text or query, vector_k, mask)
         t2 = _time.perf_counter()
         self.last_timing["bm25_ms"] = round((t1 - t0) * 1000, 1)
         self.last_timing["vector_ms"] = round((t2 - t1) * 1000, 1)
@@ -410,12 +445,25 @@ class HybridRetriever:
 
         if len(candidate_ids) <= rerank_k:
             self.last_timing["rerank_ms"] = 0.0
+            self.last_timing["mmr_ms"] = 0.0
             return self._format_results(candidate_ids[:rerank_k])
 
-        reranked_ids = self._rerank(query, candidate_ids, rerank_k)
+        if mmr:
+            # MMR：先重排出一个更大的候选池，再按"相关分 - λ·与已选块相似度"贪心选取
+            pool_size = min(rerank_k * 4, len(candidate_ids))
+            ranked = self._rerank(query, candidate_ids, pool_size)
+            t3 = _time.perf_counter()
+            selected = self._mmr_select(ranked, rerank_k, mmr_lambda)
+            t4 = _time.perf_counter()
+            self.last_timing["rerank_ms"] = round((t3 - t2) * 1000, 1)
+            self.last_timing["mmr_ms"] = round((t4 - t3) * 1000, 1)
+            return self._format_results(selected)
+
+        reranked = self._rerank(query, candidate_ids, rerank_k)
         t3 = _time.perf_counter()
         self.last_timing["rerank_ms"] = round((t3 - t2) * 1000, 1)
-        return self._format_results(reranked_ids)
+        self.last_timing["mmr_ms"] = 0.0
+        return self._format_results([cid for cid, _ in reranked])
 
     def _bm25_search(self, query: str, top_k: int, mask: Optional[List[bool]] = None) -> List[Tuple[int, float]]:
         if self._bm25_index is None:
@@ -474,7 +522,7 @@ class HybridRetriever:
 
     def _rerank(
         self, query: str, candidate_ids: List[int], top_k: int
-    ) -> List[int]:
+    ) -> List[Tuple[int, float]]:
         import torch
         tokenizer, model = _get_reranker()
 
@@ -499,7 +547,23 @@ class HybridRetriever:
         ranked = sorted(
             zip(candidate_ids, scores), key=lambda x: x[1], reverse=True
         )
-        return [cid for cid, _ in ranked[:top_k]]
+        return [(cid, float(s)) for cid, s in ranked[:top_k]]
+
+    def _mmr_select(self, ranked: List[Tuple[int, float]], k: int, lam: float) -> List[int]:
+        """MMR 贪心选取：把重排后的候选池（id, 分数）按相关-多样折中选出 k 个。"""
+        if len(ranked) <= k:
+            return [cid for cid, _ in ranked]
+        ids = [cid for cid, _ in ranked]
+        model = _get_embedding_model()
+        embs = model.encode(
+            [self.chunks[cid] for cid in ids],
+            normalize_embeddings=True,
+            show_progress_bar=False,
+            batch_size=32,
+        )
+        sim = embs @ embs.T   # 余弦相似度矩阵（候选 ≤20 个，毫秒级）
+        picked = _mmr_pick([s for _, s in ranked], sim, k, lam)
+        return [ids[i] for i in picked]
 
     def _format_results(self, chunk_ids: List[int]) -> List[Dict]:
         results = []

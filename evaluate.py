@@ -11,7 +11,7 @@ evaluate.py — RAG 分块方法消融评测框架
     -> 逐条写入 results/{method}_{source}.csv  （配对 t 检验的前提）
 
 数据源：
-  - finance:  金融论文语料 + 人工标注 data/annotations/finance_annotations.csv（格式见同目录 .csv.template）
+  - finance:  39 篇金融论文 + 人工标注 data/annotations/finance_annotations.csv
   - hotpotqa: HotpotQA 子集 data/hotpotqa_subset.json（官方格式）
 
 用法：
@@ -58,7 +58,7 @@ MAX_GEN_RETRIES = 2
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANNOTATIONS_CSV = os.path.join(BASE_DIR, "data", "annotations", "finance_annotations.csv")
 HOTPOTQA_JSON = os.path.join(BASE_DIR, "data", "hotpotqa_subset.json")
-DOCS_DIR = os.path.join(BASE_DIR, "data", "pdfs")   # 原始 PDF 目录（仅未指定 --docs-cache 时的慢速加载路径；推荐直接用 MinerU 缓存）
+DOCS_DIR = os.path.join(BASE_DIR, "data", "docs")   # 原始 PDF 目录（仅未指定 --docs-cache 时的慢速加载路径；推荐直接用 MinerU 缓存）
 OUTPUT_DIR = os.path.join(BASE_DIR, "results")
 VECTOR_DB_ROOT = os.path.join(OUTPUT_DIR, "vector_db")
 DOCS_CACHE = os.path.join(BASE_DIR, "data", "docs_cache.json")   # 文档加载缓存（避免每次重跑都 OCR）
@@ -551,7 +551,36 @@ def build_index(docs: Dict[str, str], method: str):
     return rtr
 
 
-def run_method(method: str, qbank: List[Dict], docs: Dict[str, str], skip_gen: bool = False) -> str:
+_HYDE_CACHE: Dict[str, Optional[str]] = {}
+
+
+def eval_hyde(question: str) -> Optional[str]:
+    """评测用 HyDE 假设文档（同一问题只生成一次；失败返回 None → 回退原查询）。"""
+    if question in _HYDE_CACHE:
+        return _HYDE_CACHE[question]
+    try:
+        client = _get_client()
+        resp = client.chat.completions.create(
+            model=GENERATION_MODEL,
+            messages=[
+                {"role": "system",
+                 "content": "你是学术问答助手。请写一段 100~200 字的假设答案，正面回答用户问题。"
+                            "要求：学术化中文，像一段论文综述正文；只输出这段文字，不写标题、不引用文献。"},
+                {"role": "user", "content": question},
+            ],
+            temperature=0.2, stream=False, timeout=45,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        out = text[:300] or None
+    except Exception:
+        out = None
+    _HYDE_CACHE[question] = out
+    return out
+
+
+def run_method(method: str, qbank: List[Dict], docs: Dict[str, str],
+               skip_gen: bool = False, use_hyde: bool = False,
+               use_mmr: bool = True) -> str:
     if not qbank:
         print(f"  [SKIP] {method}: 该数据源无样本")
         return ""
@@ -560,8 +589,10 @@ def run_method(method: str, qbank: List[Dict], docs: Dict[str, str], skip_gen: b
     rows = []
     for qi, q in enumerate(qbank):
         try:
+            hyde_text = eval_hyde(q["question"]) if use_hyde else None
             results = rtr.retrieve(q["question"], bm25_k=BM25_K, vector_k=VECTOR_K,
-                                   rerank_k=RERANK_K, keywords=None)
+                                   rerank_k=RERANK_K, keywords=None,
+                                   hyde_text=hyde_text, mmr=use_mmr)
             recall, mrr, ndcg = retrieval_metrics(results, q["gold_sources"], k=RERANK_K)
             recall_c, mrr_c, ndcg_c = retrieval_metrics_chunk(results, q.get("gold_texts") or [], k=RERANK_K)
             em, f1, pred = 0.0, 0.0, ""
@@ -674,6 +705,8 @@ def main():
     parser.add_argument("--source", default="finance", choices=["finance", "hotpotqa", "both"])
     parser.add_argument("--limit", type=int, default=0, help="每个数据源最多评测前 N 题（0=全部，测试用）")
     parser.add_argument("--skip-gen", action="store_true", help="只算检索指标，不调生成 API")
+    parser.add_argument("--hyde", action="store_true", help="开启 HyDE 假设文档检索（每题多一次 LLM 调用）")
+    parser.add_argument("--no-mmr", action="store_true", help="关闭 MMR 多样性选取（默认开启，A/B 对比用）")
     parser.add_argument("--docs-dir", default=DOCS_DIR)
     parser.add_argument("--ttest", action="store_true", help="评测后对前两种方法做配对检验")
     parser.add_argument("--ttest-only", action="store_true", help="不做评测，直接对已有 CSV 做配对检验（秒级）")
@@ -742,7 +775,8 @@ def main():
             continue
         for m in methods:
             try:
-                run_method(m, qbank, docs, skip_gen=args.skip_gen)
+                run_method(m, qbank, docs, skip_gen=args.skip_gen,
+                           use_hyde=args.hyde, use_mmr=not args.no_mmr)
             except NotImplementedError as e:
                 print(f"  [SKIP] {m}: {e}")
             except Exception as e:

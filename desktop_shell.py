@@ -261,8 +261,10 @@ class Api:
             return {"ok": False, "error": str(e)}
 
     def search_filters(self, query, methods=None, tasks=None, year_min=None,
-                       year_max=None, author=None, top_k=8):
-        args = {"query": query, "top_k": int(top_k or 8)}
+                       year_max=None, author=None, top_k=8,
+                       use_hyde=False, mmr=True):
+        args = {"query": query, "top_k": int(top_k or 8),
+                "use_hyde": bool(use_hyde), "mmr": bool(mmr)}
         if methods:
             args["methods"] = list(methods)
         if tasks:

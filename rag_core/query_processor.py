@@ -125,6 +125,25 @@ class QueryProcessor:
         return self._last_result
 
 
+# ---------- HyDE（假设文档检索增强） ----------
+
+_HYDE_PROMPT = """你是学术问答助手。请写一段 100~200 字的假设答案，正面回答用户问题。
+要求：
+- 学术化中文，像一段论文综述正文；
+- 只输出这段文字，不写标题、不引用文献、不写来源编号。"""
+
+
+def hyde_hypothesis(question: str, timeout: int = 45) -> Optional[str]:
+    """生成 HyDE 假设文档（供向量检索用，可选开启）。
+    失败/超时返回 None——调用方自动回退原查询，不打断主流程。"""
+    try:
+        text = _call_deepseek(_HYDE_PROMPT, question, timeout=timeout)
+        text = (text or "").strip()
+        return text[:300] or None
+    except Exception:
+        return None
+
+
 # ========== 测试 ==========
 
 if __name__ == "__main__":

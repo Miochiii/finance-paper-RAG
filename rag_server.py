@@ -108,6 +108,9 @@ class SearchReq(BaseModel):
     query: str
     top_k: int = 5
     filters: dict = None   # 元数据过滤：{year_min,year_max,authors,methods,tasks}
+    use_hyde: bool = False  # HyDE 假设文档检索（多一次 LLM 调用）
+    mmr: bool = True        # MMR 多样性选取（默认开）
+    mmr_lambda: float = 0.6
 
 
 class AskReq(BaseModel):
@@ -115,6 +118,9 @@ class AskReq(BaseModel):
     top_k: int = 5
     deep: bool = False
     filters: dict = None
+    use_hyde: bool = False
+    mmr: bool = True
+    mmr_lambda: float = 0.6
 
 
 class OpenReq(BaseModel):
@@ -559,27 +565,48 @@ def stats_kb() -> dict:
     return {"total_chunks": len(chunks), "by_source": by_source, "obs": summarize()}
 
 
-def search_kb(query: str, top_k: int = 5, filters: dict = None) -> dict:
-    """纯检索：返回块与来源，不生成。filters 为元数据过滤（见 retriever.match_meta_filter）。"""
+def _prepare_hyde(question: str):
+    """按需生成 HyDE 假设文档；返回 (text, ms)。未开启/失败 → (None, None)。"""
+    from rag_core.query_processor import hyde_hypothesis
+    import time as _t
+    t0 = _t.perf_counter()
+    text = hyde_hypothesis(question)
+    ms = round((_t.perf_counter() - t0) * 1000, 1)
+    return text, ms
+
+
+def search_kb(query: str, top_k: int = 5, filters: dict = None,
+              use_hyde: bool = False, mmr: bool = True,
+              mmr_lambda: float = 0.6) -> dict:
+    """纯检索：返回块与来源，不生成。
+    filters 为元数据过滤（见 retriever.match_meta_filter）；
+    use_hyde 开启假设文档检索（多一次 LLM 调用，问题表述绕时收益明显）；
+    mmr 默认开启多样性选取（避免同一文档相邻块霸榜）。"""
     from rag_core.observability import Timer, log_event
     from rag_core.retriever import normalize_filters
     t_all = Timer()
     filters = normalize_filters(filters)
+    hyde_text, hyde_ms = (None, None)
+    if use_hyde:
+        hyde_text, hyde_ms = _prepare_hyde(query)
     try:
         retriever = get_retriever()
     except RuntimeError as e:
         log_event("search", ok=False, total_ms=round(t_all.ms(), 1), error=str(e)[:120])
         return {"ok": False, "error": str(e)}
-    results = retriever.retrieve(query, bm25_k=20, vector_k=20, rerank_k=top_k, filters=filters)
+    results = retriever.retrieve(query, bm25_k=20, vector_k=20, rerank_k=top_k,
+                                 filters=filters, hyde_text=hyde_text,
+                                 mmr=mmr, mmr_lambda=mmr_lambda)
     rt = getattr(retriever, "last_timing", {}) or {}
     log_event(
         "search", ok=True,
         total_ms=round(t_all.ms(), 1),
         retrieve_ms=round(t_all.ms(), 1),
         bm25_ms=rt.get("bm25_ms"), vector_ms=rt.get("vector_ms"),
-        rerank_ms=rt.get("rerank_ms"),
+        rerank_ms=rt.get("rerank_ms"), mmr_ms=rt.get("mmr_ms"),
+        hyde_ms=hyde_ms,
         hits=len(results),
-        filters=bool(filters),
+        filters=bool(filters), hyde=use_hyde, mmr=mmr,
     )
     return {"ok": True, "results": results, "filters": filters}
 
@@ -863,12 +890,18 @@ def ingest_kb(mineru_out: str = None, docs_dir: str = None,
             "msg": f"新增 {added_docs} 篇 / {added_chunks} 块，已入库并增量索引"}
 
 
-def ask_kb(question: str, top_k: int = 5, filters: dict = None) -> dict:
-    """检索 + 生成（DeepSeek），返回 {answer, citations}。filters 为元数据过滤。"""
+def ask_kb(question: str, top_k: int = 5, filters: dict = None,
+           use_hyde: bool = False, mmr: bool = True,
+           mmr_lambda: float = 0.6) -> dict:
+    """检索 + 生成（DeepSeek），返回 {answer, citations}。
+    filters 为元数据过滤；use_hyde 开启假设文档检索；mmr 默认开启多样性选取。"""
     from rag_core.observability import Timer, log_event
     from rag_core.retriever import normalize_filters
     t_all = Timer()
     filters = normalize_filters(filters)
+    hyde_text, hyde_ms = (None, None)
+    if use_hyde:
+        hyde_text, hyde_ms = _prepare_hyde(question)
     if not os.getenv("deepseek_api"):
         log_event("ask", ok=False, total_ms=round(t_all.ms(), 1), error="未配置 deepseek_api")
         return {"ok": False, "error": "未配置环境变量 deepseek_api"}
@@ -890,6 +923,7 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None) -> dict:
     results = retriever.retrieve(
         qr["expanded_query"], bm25_k=20, vector_k=20, rerank_k=top_k,
         keywords=qr["keywords"], filters=filters,
+        hyde_text=hyde_text, mmr=mmr, mmr_lambda=mmr_lambda,
     )
     retrieve_ms = t_ret.ms()
     rt = getattr(retriever, "last_timing", {}) or {}
@@ -933,8 +967,10 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None) -> dict:
         "ask", ok=True, total_ms=round(t_all.ms(), 1),
         qp_ms=round(qp_ms, 1), retrieve_ms=round(retrieve_ms, 1),
         bm25_ms=rt.get("bm25_ms"), vector_ms=rt.get("vector_ms"),
-        rerank_ms=rt.get("rerank_ms"), generate_ms=round(generate_ms, 1),
+        rerank_ms=rt.get("rerank_ms"), mmr_ms=rt.get("mmr_ms"),
+        hyde_ms=hyde_ms, generate_ms=round(generate_ms, 1),
         tokens_in=tokens_in, tokens_out=tokens_out, hits=len(results),
+        hyde=use_hyde, mmr=mmr,
     )
     return {"ok": True, "answer": _linkify_answer(answer or "", used), "citations": citations}
 
@@ -1002,12 +1038,14 @@ def build(req: BuildReq):
 
 @app.post("/search")
 def search(req: SearchReq):
-    return search_kb(req.query, req.top_k, req.filters)
+    return search_kb(req.query, req.top_k, req.filters,
+                     use_hyde=req.use_hyde, mmr=req.mmr, mmr_lambda=req.mmr_lambda)
 
 
 @app.post("/ask")
 def ask(req: AskReq):
-    return ask_kb(req.question, req.top_k, req.filters)
+    return ask_kb(req.question, req.top_k, req.filters,
+                  use_hyde=req.use_hyde, mmr=req.mmr, mmr_lambda=req.mmr_lambda)
 
 
 @app.post("/open")
@@ -1211,17 +1249,20 @@ mcp = FastMCP("rag")
 
 @mcp.tool(name="search")
 def mcp_search(query: str, top_k: int = 5, year_min: int = None, year_max: int = None,
-               authors: list = None, methods: list = None, tasks: list = None) -> dict:
+               authors: list = None, methods: list = None, tasks: list = None,
+               use_hyde: bool = False, mmr: bool = True) -> dict:
     """在本地知识库中检索：只返回证据块与来源（含页码），不生成答案。
     可选元数据过滤：year_min/year_max（年份闭区间）、authors（作者，任一命中）、
     methods（方法标签，如 "随机森林"/"机器学习"）、tasks（任务标签，如 "信贷风控"）。
+    use_hyde：问题表述绕、检索不对口时开启假设文档检索（多一次 LLM 调用）；
+    mmr：多样性选取，默认开启（避免同一文档相邻块霸榜），要看同一篇连续内容时关闭。
     适合需要自行组织材料的场景（文献分析/综述/方向对比等）。
     若用户要的是基于知识库的直接问答成品，请改用 ask 工具——它返回带可点击引用链接的
     标准答案（每个引用段落末尾挂 [来源N](http链接)，点击直开本地 PDF 对应页），
     直接把 ask 的 answer 字段呈现给用户即可，不要用 search 的证据自己改写。"""
     filters = {"year_min": year_min, "year_max": year_max,
                "authors": authors, "methods": methods, "tasks": tasks}
-    return search_kb(query, top_k, filters)
+    return search_kb(query, top_k, filters, use_hyde=use_hyde, mmr=mmr)
 
 
 @mcp.tool(name="stats")
@@ -1281,16 +1322,18 @@ def mcp_corpus_rename(old: str, new: str) -> dict:
 
 @mcp.tool(name="ask")
 def mcp_ask(question: str, top_k: int = 5, year_min: int = None, year_max: int = None,
-            authors: list = None, methods: list = None, tasks: list = None) -> dict:
+            authors: list = None, methods: list = None, tasks: list = None,
+            use_hyde: bool = False, mmr: bool = True) -> dict:
     """检索 + 生成（走 DeepSeek API）：返回基于知识库的成品答案，
     每个引用段落的末尾带可点击引用链接 [来源N](http://127.0.0.1:3080/dsh-rag/open?doc=...&page=...)，
     点击直开本地 PDF 对应页（标准引用样式）。用户需要基于本地库回答问题/解释概念时
     优先调用本工具，并把 answer 字段直接作为回复呈现，不要改写。
     可选元数据过滤：year_min/year_max（年份闭区间）、authors（作者，任一命中）、
-    methods（方法标签）、tasks（任务标签），如"只看2022年以后机器学习方法的信贷风控论文"。"""
+    methods（方法标签）、tasks（任务标签），如"只看2022年以后机器学习方法的信贷风控论文"。
+    use_hyde：问题表述绕时开启假设文档检索（多一次 LLM 调用）；mmr 默认开启多样性选取。"""
     filters = {"year_min": year_min, "year_max": year_max,
                "authors": authors, "methods": methods, "tasks": tasks}
-    return ask_kb(question, top_k, filters)
+    return ask_kb(question, top_k, filters, use_hyde=use_hyde, mmr=mmr)
 
 
 @mcp.tool(name="open_doc")

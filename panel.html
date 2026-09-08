@@ -86,6 +86,8 @@
     <input id="q-y2" type="number" placeholder="止" style="width:70px">
     <span style="font-size:12px;color:#667">作者</span>
     <input id="q-author" placeholder="作者名" style="width:110px">
+    <label style="font-size:12px;color:#667;cursor:pointer" title="MMR 多样性：避免同一文档相邻块霸榜，默认开启"><input type="checkbox" id="q-mmr" checked> MMR 多样性</label>
+    <label style="font-size:12px;color:#667;cursor:pointer" title="HyDE 增强：问题表述绕、检索不对口时勾选（多一次 LLM 调用，慢 1~3 秒）"><input type="checkbox" id="q-hyde"> HyDE 增强</label>
   </div>
   <div id="q-results" style="max-height:230px;overflow-y:auto;border:1px solid #ddd;background:#fafbfd;padding:6px"></div>
 
@@ -150,14 +152,14 @@ const httpApi = {
   corpus_rename: (old, neuName) => httpCall('POST', '/corpus/rename', { old, new: neuName }),
   meta_vocab: () => httpCall('GET', '/meta/vocab'),
   survey_list: () => httpCall('GET', '/survey/list'),
-  search_filters: (query, methods, tasks, year_min, year_max, author, top_k) => {
+  search_filters: (query, methods, tasks, year_min, year_max, author, top_k, use_hyde, mmr) => {
     const filters = {};
     if (methods && methods.length) filters.methods = methods;
     if (tasks && tasks.length) filters.tasks = tasks;
     if (year_min) filters.year_min = Number(year_min);
     if (year_max) filters.year_max = Number(year_max);
     if (author) filters.authors = [author];
-    return httpCall('POST', '/search', { query, top_k: top_k || 8, filters });
+    return httpCall('POST', '/search', { query, top_k: top_k || 8, filters, use_hyde: !!use_hyde, mmr: mmr !== false });
   },
   open_url: (url) => { window.open(url, '_blank'); return { ok: true, msg: '已打开' }; },
   survey_outline: (topic, outline) => httpCall('POST', '/survey/outline', { topic, outline: outline || null }),
@@ -172,6 +174,10 @@ let _booted = false;
 function startApp() {
   if (_booted) return;
   _booted = true;
+  try {  // 恢复上次的 HyDE/MMR 勾选状态
+    document.getElementById('q-hyde').checked = localStorage.getItem('rag-q-hyde') === '1';
+    if (localStorage.getItem('rag-q-mmr') === '0') document.getElementById('q-mmr').checked = false;
+  } catch (e) {}
   refresh();
   corpusRefresh();
   loadSurveyTopics();
@@ -528,12 +534,17 @@ async function doSearch() {
   const box = document.getElementById('q-results');
   if (!q) { document.getElementById('msg').textContent = '请输入检索问题'; return; }
   document.getElementById('msg').textContent = '检索中...';
+  const useHyde = document.getElementById('q-hyde').checked;
+  const useMmr = document.getElementById('q-mmr').checked;
+  localStorage.setItem('rag-q-hyde', useHyde ? '1' : '0');
+  localStorage.setItem('rag-q-mmr', useMmr ? '1' : '0');
   try {
     const r = await window.pywebview.api.search_filters(
       q,
       [...selFilters.methods], [...selFilters.tasks],
       document.getElementById('q-y1').value, document.getElementById('q-y2').value,
-      document.getElementById('q-author').value.trim()
+      document.getElementById('q-author').value.trim(),
+      8, useHyde, useMmr
     );
     if (r && r.ok && r.results) {
       qHits.length = 0;
