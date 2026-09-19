@@ -315,11 +315,81 @@ class Api:
         return mcp_call("survey_export", {"topic": topic, "format": "markdown"}, timeout=300)
 
 
+# --------------------------------------------------------------------------
+# DSH 主窗口右键菜单注入（pywebview 默认禁用右键菜单，导致选中文字无法复制）
+# --------------------------------------------------------------------------
+_CTX_MENU_JS = """
+(function () {
+  if (window.__ragCtxMenu) return;
+  window.__ragCtxMenu = true;
+  // 1) 允许正文选中（覆盖页面可能的 user-select:none）
+  var st = document.createElement('style');
+  st.textContent = 'body * { user-select: text !important; }';
+  document.head.appendChild(st);
+  // 2) 自建右键菜单：有选区时显示「复制 / 全选」
+  var menu = document.createElement('div');
+  menu.style.cssText = 'position:fixed;z-index:2147483647;background:#fff;border:1px solid #ccc;'
+    + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.2);display:none;padding:4px 0;'
+    + 'font:13px/1.6 "Microsoft YaHei",sans-serif;min-width:120px;';
+  document.body.appendChild(menu);
+  function hide() { menu.style.display = 'none'; }
+  function copySel() {
+    var sel = window.getSelection().toString();
+    if (!sel) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(sel).catch(function () { document.execCommand('copy'); });
+    } else {
+      document.execCommand('copy');
+    }
+  }
+  document.addEventListener('contextmenu', function (e) {
+    var sel = window.getSelection && window.getSelection().toString();
+    if (!sel) return;   // 无选区不拦截
+    e.preventDefault();
+    e.stopPropagation();
+    menu.innerHTML = '';
+    var items = [
+      ['复制', copySel],
+      ['全选', function () {
+        var s = window.getSelection(), r = document.createRange();
+        r.selectNodeContents(document.body);
+        s.removeAllRanges(); s.addRange(r);
+      }],
+    ];
+    items.forEach(function (it) {
+      var d = document.createElement('div');
+      d.textContent = it[0];
+      d.style.cssText = 'padding:6px 16px;cursor:pointer;color:#222;';
+      d.onmouseenter = function () { d.style.background = '#eef3ff'; };
+      d.onmouseleave = function () { d.style.background = ''; };
+      d.onclick = function () { it[1](); hide(); };
+      menu.appendChild(d);
+    });
+    menu.style.display = 'block';
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 140) + 'px';
+    menu.style.top = Math.min(e.clientY, window.innerHeight - 90) + 'px';
+  });
+  document.addEventListener('click', hide);
+  document.addEventListener('scroll', hide, true);
+})();
+"""
+
+
+def _inject_ctx_menu():
+    """DSH 主窗口每次页面加载后注入右键菜单（SPA 跳转/重启后重新注入）。"""
+    try:
+        if _MAIN_WIN is not None:
+            _MAIN_WIN.evaluate_js(_CTX_MENU_JS)
+    except Exception:
+        pass
+
+
 def main():
     global _MAIN_WIN
     api = Api()
     # 主窗口：内嵌 DSH agent 界面（启动后点面板「启动 DSH」，就绪自动加载进来）
     _MAIN_WIN = webview.create_window("DeepSeek Harness Agent", DSH_URL, width=1200, height=820)
+    _MAIN_WIN.events.loaded += _inject_ctx_menu   # 每次页面加载后注入右键菜单
     # 侧栏窗口：知识库面板
     webview.create_window(
         "知识库面板",
