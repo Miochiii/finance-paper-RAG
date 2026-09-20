@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """全局配置：所有路径与超参集中在此，可用环境变量 / 项目根目录 .env 覆盖。
 
-优先级：系统环境变量 > .env > 默认值（默认值全部解析到项目内目录，
-换机器零迁移）。
+优先级：系统环境变量 > .env > 默认值（默认值全部解析到项目内 data/ 目录，
+整个项目目录可整体迁移/打包，不依赖任何外部绝对路径）。
 """
 
 import os
@@ -40,27 +40,28 @@ PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))   # .../rag_core
 PROJECT_DIR = os.path.dirname(PACKAGE_DIR)                  # 项目根目录
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
 
-# ---- 路径（默认全部在项目内；环境变量可覆盖）----
-# 语料布局（多语料：data/corpora/<语料名>/；兼容模式——未建立布局时沿用下方默认路径）
+# ---- 路径（默认全部在项目内 data/；环境变量可覆盖）----
+# ---- 路径（默认全部在项目内 data/；环境变量可覆盖）----
+# 语料目录布局：每个语料一个子目录（见 rag_core/corpus.py 与 migrate_corpus.py）；
+# 模型与日志全局共享。默认语料可用环境变量 RAG_CORPUS 覆盖。
 CORPORA_DIR = os.path.join(DATA_DIR, "corpora")
-DEFAULT_CORPUS = os.getenv("RAG_CORPUS", "default")
+DEFAULT_CORPUS = os.getenv("RAG_CORPUS", "金融论文")
+_CORPUS_HOME = os.path.join(CORPORA_DIR, DEFAULT_CORPUS)
 # 知识库与向量索引
-KB_FILE = os.getenv("RAG_KB_FILE", os.path.join(DATA_DIR, "knowledge_base.json"))
-VECTOR_DB_PATH = os.getenv("RAG_VECTOR_DB", os.path.join(DATA_DIR, "vector_db"))
-# MinerU 输出目录（content_list.json 所在根；默认指向仓库自带样例，便于 3 分钟跑通）
-MINERU_OUT = os.getenv(
-    "MINERU_OUT",
-    os.path.join(PROJECT_DIR, "examples", "mineru_output", "batch"),
-)
-# Word 文档目录（默认仓库自带样例目录）
-DOCS_DIR = os.getenv("DOCS_DIR", os.path.join(PROJECT_DIR, "examples", "input_docx"))
-# 嵌入/重排模型缓存目录（首次构建自动从 ModelScope 下载，约 2GB）
-MODEL_DIR = os.getenv("MODELSCOPE_CACHE", os.path.join(PROJECT_DIR, "models"))
-# 可观测日志
+KB_FILE = os.getenv("RAG_KB_FILE", os.path.join(_CORPUS_HOME, "knowledge_base.json"))
+VECTOR_DB_PATH = os.getenv("RAG_VECTOR_DB", os.path.join(_CORPUS_HOME, "vector_db"))
+# MinerU 输出目录（content_list.json 所在 batch 根）
+MINERU_OUT = os.getenv("MINERU_OUT", os.path.join(_CORPUS_HOME, "mineru_out", "batch"))
+# 原始文档目录（PDF/Word）
+DOCS_DIR = os.getenv("DOCS_DIR", os.path.join(_CORPUS_HOME, "docs"))
+# 嵌入/重排模型缓存目录（首次构建自动从 ModelScope 下载，约 2GB；全局共享）
+MODEL_DIR = os.getenv("MODELSCOPE_CACHE", os.path.join(DATA_DIR, "models"))
+# 可观测日志（全局共享，跨语料累计）
 OBS_LOG = os.getenv("RAG_OBS_LOG", os.path.join(DATA_DIR, "observability.jsonl"))
-# 文档元数据侧车 / 综述工作台目录（多语料模式下按语料隔离）
-DOC_META_FILE = os.getenv("RAG_DOC_META", os.path.join(DATA_DIR, "doc_metadata.json"))
-SURVEY_DIR = os.getenv("RAG_SURVEY_DIR", os.path.join(DATA_DIR, "surveys"))
+# 文档元数据侧车（年份/作者/方法/任务）
+DOC_META_FILE = os.getenv("RAG_DOC_META", os.path.join(_CORPUS_HOME, "doc_metadata.json"))
+# 综述工作台目录
+SURVEY_DIR = os.getenv("RAG_SURVEY_DIR", os.path.join(_CORPUS_HOME, "surveys"))
 # 原始 PDF 搜索目录（打开引用时按文件名定位；; 分隔追加）
 PDF_SOURCE_DIRS = [d for d in (
     [x.strip() for x in os.getenv("PDF_SOURCE_DIRS", "").split(";") if x.strip()]
@@ -84,3 +85,10 @@ DEFAULT_CHUNKER = "hmm"   # 可选 fixed / discourse / hybrid / hmm
 
 # ---- HMM 分块超参（与验证配置一致；改动会使块缓存失效）----
 HMM_BIC_COEF = 2.0
+
+# ---- MySQL 结构化分析层（可选；连接失败自动降级，不影响检索）----
+MYSQL_HOST = os.getenv("RAG_MYSQL_HOST", "127.0.0.1")
+MYSQL_PORT = int(os.getenv("RAG_MYSQL_PORT", "3306"))
+MYSQL_USER = os.getenv("RAG_MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("RAG_MYSQL_PASSWORD", "")
+MYSQL_DB = os.getenv("RAG_MYSQL_DB", "rag_analytics")

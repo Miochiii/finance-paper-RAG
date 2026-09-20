@@ -1,4 +1,4 @@
-# RAG 核心依赖（MinerU 为外部工具，按其官方文档/懒人包安装，不在此列）
+﻿# RAG 核心依赖（MinerU 为外部工具，按其官方文档/懒人包安装，不在此列）
 numpy
 scikit-learn
 hmmlearn
@@ -12,6 +12,7 @@ torch
 openai
 python-docx
 scipy           # 评测配对显著性检验（evaluate.py --ttest）
+pymysql         # MySQL 结构化分析层（可选）
 modelscope
 fastapi
 uvicorn
