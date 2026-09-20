@@ -73,6 +73,20 @@
     <button onclick="corpusCreate()">＋ 新建语料</button>
   </div>
 
+  <h2>🗄️ 数据库 <button class="small" id="db-toggle" onclick="toggleDb()">收起</button></h2>
+  <div class="row">
+    <button class="small" onclick="dbRefresh()">🔄 刷新</button>
+    <button class="small" onclick="dbSync()">⬆️ 一键同步</button>
+    <select id="db-kind" class="small" onchange="dbReport()" style="font-size:11px">
+      <option value="latency">延迟 / HyDE·MMR 对比</option>
+      <option value="eval">分块方法评测对比</option>
+      <option value="tags">标签 × 年份分布</option>
+    </select>
+  </div>
+  <div id="db-info" style="font-size:12px;color:#555;margin:4px 0">加载中...</div>
+  <div id="db-rows" style="font-size:11px;color:#333;margin:4px 0"></div>
+  <div id="db-report" style="max-height:200px;overflow-y:auto;border:1px solid #ddd;background:#fafbfd;padding:6px;font-size:11px"></div>
+
   <h2>🔍 筛选检索</h2>
   <div class="row">
     <input id="q-query" placeholder="检索问题（回车执行）" style="flex:1" onkeydown="if(event.key==='Enter')doSearch()">
@@ -169,6 +183,9 @@ const httpApi = {
   survey_rewrite: (topic, section, instruction) => httpCall('POST', '/survey/rewrite', { topic, section, instruction }),
   survey_edit: (topic, section, text) => httpCall('POST', '/survey/edit', { topic, section, text }),
   survey_export: (topic) => httpCall('POST', '/survey/export', { topic, format: 'markdown' }),
+  mysql_stats: () => httpCall('GET', '/mysql/stats'),
+  mysql_report: (kind) => httpCall('GET', '/mysql/report?kind=' + encodeURIComponent(kind || 'latency')),
+  mysql_sync: () => httpCall('POST', '/mysql/sync', {}),
 };
 let _booted = false;
 function startApp() {
@@ -181,6 +198,7 @@ function startApp() {
   refresh();
   corpusRefresh();
   loadSurveyTopics();
+  dbRefresh();
 }
 window.addEventListener('pywebviewready', startApp);   // 桌面端：桥就绪后启动
 setTimeout(function () {
@@ -498,6 +516,84 @@ async function corpusDelete() {
   } catch (e) { msg.textContent = '失败: ' + e; }
   await refresh();
   await corpusRefresh();
+}
+
+// ================= 数据库（MySQL 结构化分析层） =================
+const DB_TABLES = ['dim_corpus', 'dim_document', 'dim_tag', 'rel_doc_tag',
+                   'fact_chunk', 'fact_search_log', 'fact_eval'];
+
+function toggleDb() {
+  const box = document.getElementById('db-report');
+  const btn = document.getElementById('db-toggle');
+  const hide = box.style.display !== 'none';
+  box.style.display = hide ? 'none' : 'block';
+  document.getElementById('db-rows').style.display = hide ? 'none' : 'block';
+  btn.textContent = hide ? '展开' : '收起';
+}
+
+async function dbRefresh() {
+  const info = document.getElementById('db-info');
+  const rowsBox = document.getElementById('db-rows');
+  try {
+    const r = await window.pywebview.api.mysql_stats();
+    if (!r || !r.ok) {
+      info.textContent = 'MySQL 不可用：' + ((r && r.error) || '服务未启动或 .env 未配置');
+      rowsBox.innerHTML = '';
+      document.getElementById('db-report').innerHTML = '';
+      return;
+    }
+    info.textContent = `已连接 ${r.host}/${r.db}`;
+    const rows = r.rows || {};
+    const src = r.log_source || {};
+    const eng = r.filter_engine || {};
+    rowsBox.innerHTML =
+      DB_TABLES.map(t => `<span style="margin-right:8px">${t}=<b>${rows[t] === undefined ? '-' : rows[t]}</b></span>`).join('') +
+      `<div style="margin-top:3px;color:#667">日志来源：实时 live=${src.live || 0} / 补录 etl=${src.etl || 0}` +
+      `　筛选引擎：${Object.keys(eng).length ? Object.entries(eng).map(([k, v]) => `${k}=${v}`).join(' ') : '-'}</div>`;
+    dbReport();
+  } catch (e) {
+    info.textContent = '数据库读取失败: ' + e;
+  }
+}
+
+function dbFmt(kind, r) {
+  if (kind === 'latency') {
+    return `<table><thead><tr><th>事件</th><th>HyDE</th><th>MMR</th><th>n</th><th>均值ms</th><th>p95ms</th><th>均命中</th></tr></thead><tbody>` +
+      r.map(x => `<tr><td>${x.event_type}</td><td>${x.use_hyde ? '开' : '关'}</td><td>${x.use_mmr ? '开' : '关'}</td>` +
+        `<td>${x.n}</td><td>${x.avg_ms}</td><td>${x.p95_ms}</td><td>${x.avg_hits}</td></tr>`).join('') + '</tbody></table>';
+  }
+  if (kind === 'eval') {
+    return `<table><thead><tr><th>方法</th><th>n</th><th>recall@5</th><th>MRR</th><th>nDCG@5</th><th>块recall@5</th><th>F1</th><th>忠实</th><th>相关</th></tr></thead><tbody>` +
+      r.map(x => `<tr><td>${x.method}</td><td>${x.n}</td><td>${x.recall5}</td><td>${x.mrr}</td><td>${x.ndcg5}</td>` +
+        `<td>${x.recall5_c}</td><td>${x.f1}</td><td>${x.judge_faith}</td><td>${x.judge_corr}</td></tr>`).join('') + '</tbody></table>';
+  }
+  return `<table><thead><tr><th>类型</th><th>标签</th><th>年份</th><th>文献数</th></tr></thead><tbody>` +
+    r.map(x => `<tr><td>${x.kind}</td><td>${x.label}</td><td>${x.year === null ? '-' : x.year}</td><td>${x.doc_cnt}</td></tr>`).join('') + '</tbody></table>';
+}
+
+async function dbReport() {
+  const box = document.getElementById('db-report');
+  const kind = document.getElementById('db-kind').value;
+  box.innerHTML = '查询中...';
+  try {
+    const r = await window.pywebview.api.mysql_report(kind);
+    if (!r || !r.ok) { box.innerHTML = '查询失败：' + ((r && r.error) || ''); return; }
+    if (!r.rows || !r.rows.length) { box.innerHTML = '暂无数据（先跑一次检索，或点「一键同步」补录历史）'; return; }
+    box.innerHTML = dbFmt(kind, r.rows);
+  } catch (e) { box.innerHTML = '查询失败: ' + e; }
+}
+
+async function dbSync() {
+  const msg = document.getElementById('msg');
+  msg.textContent = '同步中（维表/块表/评测/日志补录）...';
+  try {
+    const r = await window.pywebview.api.mysql_sync();
+    if (!r || !r.ok) { msg.textContent = '同步失败: ' + ((r && r.error) || ''); return; }
+    const s = r.steps || {};
+    msg.textContent = `同步完成：文献 ${(s.meta || {}).documents || 0} 篇 / 块 ${(s.chunks || {}).chunks || 0} / ` +
+      `评测 ${(s.eval || {}).rows || 0} 行 / 日志新增 ${(s.logs || {}).inserted || 0} 条（去重跳过 ${(s.logs || {}).skipped_dup || 0}）`;
+  } catch (e) { msg.textContent = '同步失败: ' + e; }
+  await dbRefresh();
 }
 
 // ================= 筛选检索（第三步） =================

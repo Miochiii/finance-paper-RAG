@@ -239,6 +239,7 @@ class HybridRetriever:
         self._vector_db_path = vector_db_path or os.path.join(
             _MODEL_DIR, "vector_db"
         )
+        self._doc_total: Optional[int] = None      # 文献数缓存（校验 MySQL 镜像是否同步）
 
     def close(self):
         """关闭底层 Qdrant 本地存储句柄并释放文件锁。
@@ -259,6 +260,7 @@ class HybridRetriever:
             return 0
         self.chunks = list(chunks)
         self.metadatas = list(metadatas) if metadatas else [{}] * len(chunks)
+        self._doc_total = None
         self._build_bm25()
         self._build_vector()
         return len(self.chunks)
@@ -334,6 +336,7 @@ class HybridRetriever:
         metas = list(new_metadatas) if new_metadatas else [{}] * len(new_chunks)
         self.chunks.extend(new_chunks)
         self.metadatas.extend(metas)
+        self._doc_total = None
 
         if self._vector_client is None:
             # 尚无向量索引：全量构建兜底
@@ -402,6 +405,9 @@ class HybridRetriever:
                 {"year_min": 2020, "year_max": 2024,
                  "authors": ["张三"], "methods": ["随机森林"], "tasks": ["信贷风控"]}
                 过滤在候选层生效（BM25 掩码 + 向量过采样后过滤），不影响索引。
+                双引擎：优先由 MySQL SQL 查出文献白名单再转块掩码；MySQL 不可用
+                或镜像过期时自动降级为内存标签匹配（见 _filter_mask），
+                实际用的哪条引擎记在 self.last_timing["filter_engine"]。
             hyde_text: HyDE 假设文档（可选）——提供时向量检索用它替代原问题，
                 BM25 仍用原问题+关键词（两路互补，假设偏了也有兜底）。
             mmr: 最终选取是否启用 MMR 多样性（默认开，避免同一文档相邻块霸榜）。
@@ -418,12 +424,11 @@ class HybridRetriever:
         self.last_timing = {}
 
         # 元数据过滤：候选层掩码（过滤后为空直接返回，不碰 GPU）
-        mask = None
-        if filters:
-            mask = [match_meta_filter(m, filters) for m in self.metadatas]
-            if not any(mask):
-                self.last_timing.update({"bm25_ms": 0.0, "vector_ms": 0.0, "rerank_ms": 0.0})
-                return []
+        mask, engine = self._filter_mask(filters)
+        self.last_timing["filter_engine"] = engine
+        if mask is not None and not any(mask):
+            self.last_timing.update({"bm25_ms": 0.0, "vector_ms": 0.0, "rerank_ms": 0.0})
+            return []
 
         # 合并用户问题 + 关键词作为 BM25 查询
         bm25_input = query
@@ -464,6 +469,36 @@ class HybridRetriever:
         self.last_timing["rerank_ms"] = round((t3 - t2) * 1000, 1)
         self.last_timing["mmr_ms"] = 0.0
         return self._format_results([cid for cid, _ in reranked])
+
+    def _doc_count(self) -> int:
+        """当前索引里的文献数（按 source 去重），用于校验 MySQL 镜像是否与 KB 同步。"""
+        if self._doc_total is None:
+            self._doc_total = len({str(m.get("source") or "") for m in self.metadatas})
+        return self._doc_total
+
+    def _filter_mask(self, filters: Optional[Dict]) -> Tuple[Optional[List[bool]], str]:
+        """结构化筛选掩码（双引擎的结构化那一半）。
+
+        优先让 MySQL 用 SQL 查出文献白名单（条件走索引，不必每次遍历全部块的元数据），
+        再翻译成块级布尔掩码交给 BM25/向量检索；MySQL 不可用、语料未同步、
+        或镜像文献数与当前 KB 不一致时回退 Python 内存标签匹配（match_meta_filter）——
+        语义严格对齐，只是慢。返回 (掩码 or None, 实际使用的引擎)。
+        """
+        if not filters:
+            return None, "none"
+        try:
+            from rag_core import corpus as corpus_mod
+            from rag_core import mysql_store
+            name = (corpus_mod.runtime_paths() or {}).get("active") or corpus_mod.DEFAULT_NAME
+            whitelist = mysql_store.filter_docs_by_sql(
+                filters, corpus_name=name, expected_docs=self._doc_count())
+            if whitelist is not None:
+                wanted = set(whitelist)
+                return ([str(m.get("source") or "") in wanted for m in self.metadatas],
+                        "mysql")
+        except Exception:
+            pass
+        return [match_meta_filter(m, filters) for m in self.metadatas], "memory"
 
     def _bm25_search(self, query: str, top_k: int, mask: Optional[List[bool]] = None) -> List[Tuple[int, float]]:
         if self._bm25_index is None:

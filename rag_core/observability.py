@@ -15,6 +15,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from typing import Dict, Optional
 
 from rag_core.config import OBS_LOG
@@ -28,9 +29,14 @@ _PRICE_OUT_PER_M = 4.5
 _lock = threading.Lock()
 
 
-def log_event(event: str, **fields) -> None:
-    """追加一条事件（JSON 行）。失败静默（日志不可用不影响主流程）。"""
-    entry: Dict = {"t": time.time(), "event": event}
+def log_event(event: str, **fields) -> Dict:
+    """追加一条事件（JSON 行）。返回写入的记录（含 t 与 rid），便于同步落库到分析层。
+
+    失败静默（日志不可用不影响主流程）。每条记录自带唯一 rid：
+    MySQL 侧用它做幂等键——实时落库和事后 ETL 补录写的是同一条记录，
+    靠 rid 精确去重，不会重复计数（时间戳只有毫秒精度，不足以当幂等键）。
+    """
+    entry: Dict = {"t": time.time(), "rid": uuid.uuid4().hex[:16], "event": event}
     entry.update(fields)
     try:
         os.makedirs(os.path.dirname(OBS_LOG_FILE), exist_ok=True)
@@ -40,6 +46,7 @@ def log_event(event: str, **fields) -> None:
                 f.write(line + "\n")
     except OSError:
         pass
+    return entry
 
 
 class Timer:

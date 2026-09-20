@@ -16,7 +16,8 @@
 - 🧭 **方向辅助**：研究方向可行性分析、候选方向多维对比排序（基于本地文献证据）；
 - 📝 **交互式综述工作台**：大纲协商 → 逐节生成（先检索后写作）→ 局部重写/手动编辑 → 导出；`survey_export` 附 **`editor_url` 浏览器编辑器**——手动修改文字或选中段落让 AI 重写（可选带知识库证据）；
 - 🧪 **评测框架**：5 分块方法受控消融 + 检索/生成指标 + LLM-as-judge + 配对显著性检验（见「评测」节）；
-- 🧩 **MCP 工具化**：18 个工具供 DeepSeek Harness 注册；
+- 🧩 **MCP 工具化**：21 个工具供 DeepSeek Harness 注册；
+- 🗄️ **双引擎检索（MySQL 结构化层）**：年份/作者/方法/任务标签筛选先由 MySQL 出"文献白名单"再交给向量召回，MySQL 不可用或镜像过期自动降级为内存标签匹配；检索日志实时落库，延迟分位、HyDE/MMR 开关对比、评测指标对比、标签×年份分布都是 SQL 报表（见「结构化分析层」节）；
 - 🗂️ **多语料管理**：多套语料各自建库（知识库/向量/元数据/词典/综述按语料隔离），一键切换激活；**关键词词典与标签词汇表随切换自动刷新**；面板支持新建语料（可后台建库）、切换与元数据筛选检索；
 - 🖥️ **桌面端**：PyWebview 双窗口（DSH 对话 + 知识库面板）。
 
@@ -28,7 +29,9 @@ flowchart LR
     B --> C[rag_core 管线<br/>分块 4 模式<br/>页码归属 + 元数据打标]
     C --> D[(知识库 KB json<br/>+ qdrant 向量索引)]
     D --> E[混合检索<br/>BM25+金融词典 · BGE 向量<br/>RRF 融合 · 重排]
-    E --> F[rag_server 一体化服务<br/>HTTP 8000 + MCP /mcp 15 工具]
+    E --> M[(MySQL 分析层<br/>结构化筛选白名单 + 日志落库)]
+    M -.降级回退.-> E
+    E --> F[rag_server 一体化服务<br/>HTTP 8000 + MCP /mcp 21 工具]
     F --> G[命令行 run_rag.py]
     F --> H[DeepSeek Harness agent<br/>mcp__rag__*]
     F --> I[桌面面板 / 综述编辑器<br/>导出 Word 论文排版]
@@ -40,15 +43,16 @@ flowchart LR
 
 ```
 rag-finance/
-├── rag_core/                # 核心管线（配置/解析/分块/检索/元数据/方向/综述/可观测）
-├── rag_server.py            # 一体化服务（HTTP + MCP 单进程，18 个 MCP 工具）
+├── rag_core/                # 核心管线（配置/解析/分块/检索/元数据/方向/综述/可观测/MySQL 分析层）
+├── rag_server.py            # 一体化服务（HTTP + MCP 单进程，21 个 MCP 工具）
 ├── run_rag.py               # 命令行入口
+├── sync_mysql.py            # MySQL 结构化分析层命令行（建表/同步/报表/筛选试跑）
 ├── desktop_shell.py         # 桌面端（可选）
 ├── panel.html               # 知识库面板
 ├── editor.html              # 综述编辑器页面（/editor，浏览器新标签页）
 ├── evaluate.py              # 分块消融评测框架（5 方法 + 配对显著性检验）
 ├── build_docs_cache_v2.py   # MinerU 输出 → 评测用文档缓存
-├── tests/                   # 单元测试（pytest，无需 GPU，78 项）
+├── tests/                   # 单元测试（pytest，无需 GPU，151 项）
 ├── docs/
 │   ├── DSH接入说明.md       # DeepSeek Harness 注册 MCP 工具步骤
 │   └── EVAL.md              # 评测数据格式 / 指标定义 / 复现步骤 / 参考结果
@@ -135,7 +139,7 @@ python run_rag.py ask "RAG 流水线有哪四个环节"   # 检索 + 生成（�
 |---|---|
 | 命令行 | `python run_rag.py <build/ingest/stats/search/ask/open/health>` |
 | HTTP 服务 | `python -m uvicorn rag_server:app --host 127.0.0.1 --port 8000`（接口见 rag_server.py 文档字符串） |
-| MCP / DSH | 见 `docs/DSH接入说明.md`，注册后 agent 可用 `mcp__rag__*` 六个工具 |
+| MCP / DSH | 见 `docs/DSH接入说明.md`，注册后 agent 可用 `mcp__rag__*` 21 个工具 |
 | 桌面端 | `python desktop_shell.py`（需安装 pywebview；DSH 命令在 PATH 或 `.env` 设 `DSH_CMD`） |
 
 ### 增量入库
@@ -156,7 +160,35 @@ agent 场景直接调用 `mcp__rag__ingest`。
 
 ## 运行统计（可观测性）
 
-统计日志写入 `data/observability.jsonl`（路径可配 `RAG_OBS_LOG`），`stats` 工具/接口返回聚合结果：问答次数、延迟分解（改写/检索/生成、BM25/向量/重排）、token 与成本估算、HMM 块缓存与句嵌入缓存命中率。桌面面板的「📊 运行统计」区块直接可视化。
+统计日志写入 `data/observability.jsonl`（路径可配 `RAG_OBS_LOG`），`stats` 工具/接口返回聚合结果：问答次数、延迟分解（改写/检索/生成、BM25/向量/重排）、token 与成本估算、HMM 块缓存与句嵌入缓存命中率。桌面面板的「📊 运行统计」区块直接可视化。每次检索/问答还会**实时写入 MySQL 的 `fact_search_log`**（见下节），面板「🗄️ 数据库」区块可直接看延迟分位与开关对比。
+
+## 结构化分析层（MySQL，双引擎检索）
+
+知识库仍是 JSON（事实来源），MySQL 是**分析镜像 + 检索日志的账本**：结构化筛选走 SQL、日志与评测走 SQL 报表，两者互补而不是替换。
+
+```
+dim_corpus ─┬─ dim_document ─┬─ rel_doc_tag ─ dim_tag
+            │                └─ fact_chunk            （5814 块级事实）
+            └─ fact_search_log（实时 live + 补录 etl）  fact_eval（评测指标）
+视图：v_tag_year（标签×年份分布）  v_hyde_mmr_latency（延迟分位 + HyDE/MMR 对比，窗口函数）
+```
+
+**① 双引擎检索**：筛选条件先由 MySQL 编译成 SQL 查出「文献白名单」，再翻译成块级掩码交给 BM25/向量召回（`rag_core/retriever.py::_filter_mask`）。若 MySQL 不可用、语料未同步、或镜像文献数与当前 KB 不一致（同步后又新增了文献），**自动降级**为内存标签匹配——两条路径语义严格一致（有交叉验证测试）。实际走哪条引擎记录在 `last_timing["filter_engine"]`，并落库供自检。
+
+**② 日志双写与幂等**：检索/问答事件同时写 jsonl（崩溃也不丢的事实日志）与 MySQL（可即时查询）。每条记录带唯一 `rid`，ETL 补录前按 `rid` 反查，已实时写过的行跳过，因此「实时一份 + 补录一份」不会重复计数；MySQL 当时不可用漏写的行，正好由补录补齐——两条路径互为兜底。
+
+**③ 报表即 SQL**：三张报表用视图与窗口函数实现（`PERCENT_RANK()` 算 p95、`GROUP BY` 做标签分布、`INSERT ... ON DUPLICATE KEY UPDATE` 做幂等 upsert）。
+
+```bash
+python sync_mysql.py --init     # 建库建表建视图（幂等，老库自动迁移新列）
+python sync_mysql.py --sync     # 同步：维表/块表/评测/日志补录
+python sync_mysql.py --stats    # 各表行数 + 语料年份分布 + 日志来源自检
+python sync_mysql.py --report-kind latency   # 只跑某一类报表
+python sync_mysql.py --filter "year_min=2020;methods=机器学习,深度学习;tasks=信贷风控"
+                                # 复现检索时的双引擎判断（含镜像一致性守卫）
+```
+
+接口：`GET /mysql/stats`、`GET /mysql/report?kind=latency|eval|tags`、`POST /mysql/sync`；MCP 工具 `db_report`（agent 可直接问"检索延迟分布如何"）。连接参数用 `RAG_MYSQL_*` 环境变量或 `.env` 覆盖（`RAG_MYSQL_PASSWORD` 等），默认库名 `rag_analytics`。
 
 ## 测试
 
@@ -164,6 +196,8 @@ agent 场景直接调用 `mcp__rag__ingest`。
 pip install pytest
 python -m pytest tests -q     # 全部为纯函数测试，不需要 GPU 与服务
 ```
+
+共 151 项：核心管线纯函数测试 + 双引擎/双写的行为测试；MySQL 集成测试在检测到本机可用连接时才跑（CI 上自动跳过，用独立测试库 `rag_analytics_test`，跑完即删）。测试期间观测日志与分析库写入都会改指向（`tests/conftest.py`），不会污染真实数据。
 
 ## 评测（分块消融）
 

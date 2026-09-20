@@ -1,20 +1,22 @@
 # -*- coding: utf-8 -*-
 """MySQL 结构化分析层测试。
 
-分三层：
+分四层：
   1. 纯函数：SQL 编译器（不连库）
   2. 降级：MySQL 不可用时所有入口返回安全值，不影响主流程
-  3. 集成：连真实 MySQL，用独立测试库（rag_analytics_test）跑一遍完整 ETL 与筛选，
+  3. 双引擎与双写：检索筛选走 SQL 白名单 / 内存掩码的选路，日志 jsonl+MySQL 双写
+  4. 集成：连真实 MySQL，用独立测试库（rag_analytics_test）跑一遍完整 ETL 与筛选，
      并与 Python 内存掩码做一致性交叉验证 —— 结束后 DROP 测试库
 """
 import json
 import os
+import time
 
 import pytest
 
 import rag_core.config as cfg
 import rag_core.mysql_store as ms
-from rag_core.retriever import match_meta_filter, normalize_filters
+from rag_core.retriever import HybridRetriever, match_meta_filter, normalize_filters
 
 
 # --------------------------------------------------------------------------
@@ -77,6 +79,145 @@ class TestDegradation:
         monkeypatch.setattr(ms, "_connect", boom)
         assert ms.filter_docs_by_sql({}) is None
         assert ms.filter_docs_by_sql(None) is None
+
+    def test_insert_search_log_silent_when_db_down(self, monkeypatch):
+        """实时落库失败必须静默（返回 False），不能把异常抛进检索主流程。"""
+        def boom(*a, **k):
+            raise RuntimeError("mysql down")
+        monkeypatch.setattr(ms, "_connect", boom)
+        assert ms.insert_search_log({"t": time.time(), "event": "search"}) is False
+
+    def test_insert_search_log_ignores_non_search_events(self):
+        """build/ingest 等事件不属于检索日志表，不该落库。"""
+        assert ms.insert_search_log({"t": time.time(), "event": "build"}) is False
+        assert ms.insert_search_log({}) is False
+        assert ms.insert_search_log(None) is False
+
+
+# --------------------------------------------------------------------------
+# 3. 双引擎选路 + 日志双写（不连真库）
+# --------------------------------------------------------------------------
+class TestFilterEngine:
+    """筛选掩码的两条路径：SQL 白名单优先，MySQL 不可用/镜像过期回退内存掩码。"""
+
+    @staticmethod
+    def _retriever():
+        # 只测 _filter_mask：绕开 __init__ 的模型/索引加载
+        r = HybridRetriever.__new__(HybridRetriever)
+        r.chunks = ["c1", "c2", "c3", "c4"]
+        r.metadatas = [{"source": "甲.pdf"}, {"source": "甲.pdf"},
+                       {"source": "乙.pdf"}, {"source": "丙.pdf"}]
+        r._doc_total = None
+        assert r._doc_count() == 3
+        return r
+
+    def test_mysql_whitelist_becomes_chunk_mask(self, monkeypatch):
+        monkeypatch.setattr(ms, "filter_docs_by_sql", lambda f, **k: ["甲.pdf", "丙.pdf"])
+        mask, engine = self._retriever()._filter_mask({"methods": ["深度学习"]})
+        assert engine == "mysql"
+        assert mask == [True, True, False, True]
+
+    def test_sql_empty_result_is_respected(self, monkeypatch):
+        """SQL 明确查不到 → 空掩码（不是降级），检索层应直接返回空。"""
+        monkeypatch.setattr(ms, "filter_docs_by_sql", lambda f, **k: [])
+        mask, engine = self._retriever()._filter_mask({"tasks": ["不存在的任务"]})
+        assert engine == "mysql" and not any(mask)
+
+    def test_fallback_to_memory_mask_when_unavailable(self, monkeypatch):
+        monkeypatch.setattr(ms, "filter_docs_by_sql", lambda f, **k: None)
+        r = self._retriever()
+        f = normalize_filters({"authors": ["张"]})
+        mask, engine = r._filter_mask({"authors": ["张"]})
+        assert engine == "memory"
+        assert mask == [match_meta_filter(m, f) for m in r.metadatas]
+
+    def test_fallback_when_store_raises(self, monkeypatch):
+        def boom(*a, **k):
+            raise RuntimeError("boom")
+        monkeypatch.setattr(ms, "filter_docs_by_sql", boom)
+        mask, engine = self._retriever()._filter_mask({"year_min": 2020})
+        assert engine == "memory" and mask is not None
+
+    def test_no_filters_uses_no_engine(self, monkeypatch):
+        def boom(*a, **k):
+            raise AssertionError("无筛选条件时不该查库")
+        monkeypatch.setattr(ms, "filter_docs_by_sql", boom)
+        mask, engine = self._retriever()._filter_mask(None)
+        assert mask is None and engine == "none"
+
+    def test_expected_docs_passed_for_mirror_check(self, monkeypatch):
+        """必须把当前 KB 的文献数带过去，让 SQL 侧能判断镜像是否过期。"""
+        seen = {}
+
+        def fake(filters, **kw):
+            seen.update(kw)
+            return ["甲.pdf"]
+
+        monkeypatch.setattr(ms, "filter_docs_by_sql", fake)
+        self._retriever()._filter_mask({"year_min": 2020})
+        assert seen.get("expected_docs") == 3
+        assert seen.get("corpus_name")      # 语料名必传（多语料库不能串台）
+
+
+class TestLogDualWrite:
+    """检索日志：jsonl 事实日志 + MySQL 实时落库，两者必须是同一条记录。"""
+
+    def test_dual_write_same_timestamp(self, monkeypatch, work_tmp):
+        import rag_server as core
+        import rag_core.observability as obs
+        log_file = os.path.join(work_tmp, "obs_dual.jsonl")
+        monkeypatch.setattr(obs, "OBS_LOG_FILE", log_file)
+        captured = []
+        monkeypatch.setattr(ms, "insert_search_log",
+                            lambda entry: captured.append(entry) or True)
+        core._log_search_event("search", ok=True, total_ms=12.5, hits=3)
+        lines = open(log_file, encoding="utf-8").read().strip().splitlines()
+        assert len(lines) == 1
+        written = json.loads(lines[0])
+        assert written["event"] == "search" and written["total_ms"] == 12.5
+        # 同一条记录（rid 相同）：ETL 补录时才能认出"这条已经实时写过了"
+        assert len(captured) == 1
+        assert captured[0]["rid"] == written["rid"] and captured[0]["t"] == written["t"]
+
+    def test_mysql_failure_still_writes_jsonl(self, monkeypatch, work_tmp):
+        import rag_server as core
+        import rag_core.observability as obs
+        log_file = os.path.join(work_tmp, "obs_dual_fail.jsonl")
+        monkeypatch.setattr(obs, "OBS_LOG_FILE", log_file)
+
+        def boom(entry):
+            raise RuntimeError("mysql down")
+
+        monkeypatch.setattr(ms, "insert_search_log", boom)
+        core._log_search_event("ask", ok=True, total_ms=900.0, hits=5)
+        assert os.path.isfile(log_file)
+        assert json.loads(open(log_file, encoding="utf-8").read().strip())["event"] == "ask"
+
+    def test_log_row_maps_engine_and_corpus(self):
+        """行映射要带上筛选引擎、语料与 rid（面板报表按前两列自检/分组，rid 用于幂等）。"""
+        entry = {"t": 1787721143.9, "rid": "abc123def456", "event": "search",
+                 "total_ms": 100.0, "hits": 5,
+                 "filters": True, "filter_engine": "mysql", "corpus": "金融论文",
+                 "top_k": 5, "hyde": True, "mmr": False}
+        row = dict(zip(ms._LOG_COLS, ms._log_row(entry, src_line=7, source="etl")))
+        assert row["event_type"] == "search"
+        assert row["filter_engine"] == "mysql" and row["corpus_name"] == "金融论文"
+        assert row["use_hyde"] == 1 and row["use_mmr"] == 0 and row["has_filters"] == 1
+        assert row["src_line"] == 7 and row["source"] == "etl"
+        assert row["rid"] == "abc123def456"
+        # 实时行没有 jsonl 行号，但 rid 完全相同（幂等键，与时间戳精度无关）
+        live = dict(zip(ms._LOG_COLS, ms._log_row(entry)))
+        assert live["src_line"] is None and live["source"] == "live"
+        assert live["rid"] == row["rid"] and live["ts"] == row["ts"]
+
+    def test_log_event_generates_unique_rid(self, monkeypatch, work_tmp):
+        """每条日志自带唯一 rid：它才是幂等键（毫秒时间戳不足以区分同秒同事件）。"""
+        import rag_core.observability as obs
+        monkeypatch.setattr(obs, "OBS_LOG_FILE", os.path.join(work_tmp, "obs_rid.jsonl"))
+        a = obs.log_event("search", total_ms=0.0, hits=1)
+        b = obs.log_event("search", total_ms=0.0, hits=1)
+        assert a["rid"] and b["rid"] and a["rid"] != b["rid"]
+        assert a["t"] <= b["t"]
 
 
 # --------------------------------------------------------------------------
@@ -194,3 +335,51 @@ class TestIntegration:
         json.dumps(ms.stats(), ensure_ascii=False)
         if cmp_rows:
             assert isinstance(cmp_rows[0]["recall5"], float)
+
+    def test_live_insert_then_etl_dedupe(self, work_tmp):
+        """实时落库 + jsonl 补录：同一条记录只能算一次（否则报表翻倍）。"""
+        paths = _make_corpus(work_tmp)
+        assert ms.ensure_schema()["ok"]
+
+        entry = {"t": 1787722000.5, "rid": "live0001probe000", "event": "search", "ok": True,
+                 "total_ms": 123.4, "hits": 4, "hyde": False, "mmr": True, "top_k": 5,
+                 "filters": True, "filter_engine": "mysql", "corpus": "测试语料"}
+        assert ms.insert_search_log(entry) is True
+        st = ms.stats()
+        assert st["rows"]["fact_search_log"] == 1
+        assert st["log_source"].get("live") == 1
+        assert st["filter_engine"].get("mysql") == 1
+
+        # 同一条记录也躺在 jsonl 里（实时写成功后的正常状态）→ 补录必须跳过
+        with open(paths["obs"], "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        r = ms.sync_search_logs(paths["obs"])
+        assert r["ok"] and r["skipped_dup"] == 1
+        assert r["inserted"] == 2                       # jsonl 里另外两条正常事件
+        st = ms.stats()
+        assert st["rows"]["fact_search_log"] == 3       # 不是 4
+        assert st["log_source"] == {"live": 1, "etl": 2}
+
+        # 再来一次补录：行号幂等（该行已扫过），什么都不插
+        again = ms.sync_search_logs(paths["obs"])
+        assert again["inserted"] == 0 and again["skipped_dup"] == 0
+
+        # 带 rid 的行只有那一行（jsonl 里的老记录没有 rid，靠 uk_src_line 幂等）
+        conn = ms._connect()
+        with conn.cursor() as cur:
+            cur.execute("""SELECT COUNT(*), COUNT(DISTINCT rid) FROM fact_search_log
+                           WHERE rid IS NOT NULL""")
+            total, distinct = cur.fetchone()
+            assert total == distinct == 1
+
+    def test_filter_guard_degrades_when_mirror_stale(self, work_tmp):
+        """镜像过期必须降级（返回 None 让调用方走内存掩码），不能当成"查不到"。"""
+        paths = _make_corpus(work_tmp)
+        assert ms.ensure_schema()["ok"]
+        ms.sync_corpus_meta("测试语料", paths["meta"], paths["kb"])
+
+        case = {"methods": ["深度学习"]}
+        assert ms.filter_docs_by_sql(case, "不存在的语料") is None      # 未同步 → 降级
+        assert ms.filter_docs_by_sql(case, "测试语料", expected_docs=99) is None  # 文库数不符 → 降级
+        got = ms.filter_docs_by_sql(case, "测试语料", expected_docs=3)
+        assert got == ["乙.pdf"]                                        # 一致 → 正常出结果

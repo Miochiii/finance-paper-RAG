@@ -155,6 +155,11 @@ class CorpusRenameReq(BaseModel):
     new: str
 
 
+class MysqlSyncReq(BaseModel):
+    corpus_name: str = None   # 缺省同步激活语料
+    results_dir: str = None   # 评测 CSV 目录（缺省 results/）
+
+
 class DirectionReq(BaseModel):
     direction: str
     top_k: int = 12
@@ -565,6 +570,42 @@ def stats_kb() -> dict:
     return {"total_chunks": len(chunks), "by_source": by_source, "obs": summarize()}
 
 
+# ---- MySQL 结构化分析层（面板「数据库」区块 + 双引擎筛选的另一半）----
+
+def mysql_stats_kb() -> dict:
+    """分析库表行数 + 语料/年份概览 + 日志来源自检（live 是否真的在写）。"""
+    from rag_core import mysql_store
+    return mysql_store.stats()
+
+
+def mysql_report_kb(kind: str = "latency", run_tag: str = None) -> dict:
+    """三张结构化报表（都用 SQL 聚合，不再手翻 jsonl/CSV）：
+
+    - latency：检索延迟分位 + HyDE/MMR 开关对比（视图 v_hyde_mmr_latency，窗口函数）
+    - eval   ：分块方法评测指标对比（fact_eval 聚合）
+    - tags   ：标签 × 年份文献分布（视图 v_tag_year，JOIN + GROUP BY）
+    """
+    from rag_core import mysql_store
+    if not mysql_store.available():
+        return {"ok": False, "error": "MySQL 不可用（检查服务与 .env 里的 RAG_MYSQL_*）"}
+    kind = (kind or "latency").strip().lower()
+    if kind == "latency":
+        rows = mysql_store.report_latency()
+    elif kind == "eval":
+        rows = mysql_store.report_eval_compare(run_tag)
+    elif kind == "tags":
+        rows = mysql_store.report_tag_distribution()
+    else:
+        return {"ok": False, "error": f"未知报表 {kind}（可选 latency / eval / tags）"}
+    return {"ok": True, "kind": kind, "count": len(rows), "rows": rows}
+
+
+def mysql_sync_kb(corpus_name: str = None, results_dir: str = None) -> dict:
+    """一键同步：建表 → 维表/块表 → 评测结果 → 日志增量补录。"""
+    from rag_core import mysql_store
+    return mysql_store.sync_all(corpus_name, results_dir)
+
+
 def _prepare_hyde(question: str):
     """按需生成 HyDE 假设文档；返回 (text, ms)。未开启/失败 → (None, None)。"""
     from rag_core.query_processor import hyde_hypothesis
@@ -575,6 +616,31 @@ def _prepare_hyde(question: str):
     return text, ms
 
 
+def _log_search_event(event: str, **fields) -> None:
+    """检索/问答事件：写 jsonl（事实日志）+ 实时落 MySQL（结构化分析层）。
+
+    同一条记录（自带唯一 rid）同时进两处：jsonl 是崩溃也不丢的事实日志，
+    MySQL 供 SQL 报表即时查询。随后 ETL 补录时按 rid 反查即知"已写过"，不会重复计数。
+    MySQL 没起 → 静默跳过，检索主流程不受影响。
+    """
+    from rag_core.observability import log_event
+    entry = log_event(event, **fields)
+    try:
+        from rag_core import mysql_store
+        mysql_store.insert_search_log(entry)
+    except Exception:
+        pass
+
+
+def _active_corpus_name() -> str:
+    """当前激活语料名（写进日志，便于按语料分析检索行为）。"""
+    try:
+        from rag_core import corpus as corpus_mod
+        return (corpus_mod.runtime_paths() or {}).get("active") or corpus_mod.DEFAULT_NAME
+    except Exception:
+        return ""
+
+
 def search_kb(query: str, top_k: int = 5, filters: dict = None,
               use_hyde: bool = False, mmr: bool = True,
               mmr_lambda: float = 0.6) -> dict:
@@ -582,7 +648,7 @@ def search_kb(query: str, top_k: int = 5, filters: dict = None,
     filters 为元数据过滤（见 retriever.match_meta_filter）；
     use_hyde 开启假设文档检索（多一次 LLM 调用，问题表述绕时收益明显）；
     mmr 默认开启多样性选取（避免同一文档相邻块霸榜）。"""
-    from rag_core.observability import Timer, log_event
+    from rag_core.observability import Timer
     from rag_core.retriever import normalize_filters
     t_all = Timer()
     filters = normalize_filters(filters)
@@ -592,13 +658,14 @@ def search_kb(query: str, top_k: int = 5, filters: dict = None,
     try:
         retriever = get_retriever()
     except RuntimeError as e:
-        log_event("search", ok=False, total_ms=round(t_all.ms(), 1), error=str(e)[:120])
+        _log_search_event("search", ok=False, total_ms=round(t_all.ms(), 1),
+                          error=str(e)[:120])
         return {"ok": False, "error": str(e)}
     results = retriever.retrieve(query, bm25_k=20, vector_k=20, rerank_k=top_k,
                                  filters=filters, hyde_text=hyde_text,
                                  mmr=mmr, mmr_lambda=mmr_lambda)
     rt = getattr(retriever, "last_timing", {}) or {}
-    log_event(
+    _log_search_event(
         "search", ok=True,
         total_ms=round(t_all.ms(), 1),
         retrieve_ms=round(t_all.ms(), 1),
@@ -606,9 +673,11 @@ def search_kb(query: str, top_k: int = 5, filters: dict = None,
         rerank_ms=rt.get("rerank_ms"), mmr_ms=rt.get("mmr_ms"),
         hyde_ms=hyde_ms,
         hits=len(results),
-        filters=bool(filters), hyde=use_hyde, mmr=mmr,
+        filters=bool(filters), hyde=use_hyde, mmr=mmr, top_k=top_k,
+        filter_engine=rt.get("filter_engine"), corpus=_active_corpus_name(),
     )
-    return {"ok": True, "results": results, "filters": filters}
+    return {"ok": True, "results": results, "filters": filters,
+            "filter_engine": rt.get("filter_engine")}
 
 
 def build_kb(chunker: str = "hmm", clear: bool = False,
@@ -895,7 +964,7 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
            mmr_lambda: float = 0.6) -> dict:
     """检索 + 生成（DeepSeek），返回 {answer, citations}。
     filters 为元数据过滤；use_hyde 开启假设文档检索；mmr 默认开启多样性选取。"""
-    from rag_core.observability import Timer, log_event
+    from rag_core.observability import Timer
     from rag_core.retriever import normalize_filters
     t_all = Timer()
     filters = normalize_filters(filters)
@@ -903,12 +972,14 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
     if use_hyde:
         hyde_text, hyde_ms = _prepare_hyde(question)
     if not os.getenv("deepseek_api"):
-        log_event("ask", ok=False, total_ms=round(t_all.ms(), 1), error="未配置 deepseek_api")
+        _log_search_event("ask", ok=False, total_ms=round(t_all.ms(), 1),
+                          error="未配置 deepseek_api")
         return {"ok": False, "error": "未配置环境变量 deepseek_api"}
     try:
         retriever = get_retriever()
     except RuntimeError as e:
-        log_event("ask", ok=False, total_ms=round(t_all.ms(), 1), error=str(e)[:120])
+        _log_search_event("ask", ok=False, total_ms=round(t_all.ms(), 1),
+                          error=str(e)[:120])
         return {"ok": False, "error": str(e)}
 
     from openai import OpenAI
@@ -928,10 +999,13 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
     retrieve_ms = t_ret.ms()
     rt = getattr(retriever, "last_timing", {}) or {}
     if not results:
-        log_event("ask", ok=True, total_ms=round(t_all.ms(), 1), qp_ms=round(qp_ms, 1),
-                  retrieve_ms=round(retrieve_ms, 1), bm25_ms=rt.get("bm25_ms"),
-                  vector_ms=rt.get("vector_ms"), rerank_ms=rt.get("rerank_ms"),
-                  generate_ms=0, tokens_in=0, tokens_out=0, hits=0)
+        _log_search_event("ask", ok=True, total_ms=round(t_all.ms(), 1), qp_ms=round(qp_ms, 1),
+                          retrieve_ms=round(retrieve_ms, 1), bm25_ms=rt.get("bm25_ms"),
+                          vector_ms=rt.get("vector_ms"), rerank_ms=rt.get("rerank_ms"),
+                          mmr_ms=rt.get("mmr_ms"), generate_ms=0,
+                          hyde_ms=hyde_ms, tokens_in=0, tokens_out=0, hits=0,
+                          filters=bool(filters), hyde=use_hyde, mmr=mmr, top_k=top_k,
+                          filter_engine=rt.get("filter_engine"), corpus=_active_corpus_name())
         return {"ok": True, "answer": "未检索到相关内容。", "citations": []}
 
     context, citations, used = _build_context(results)
@@ -963,14 +1037,15 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
     except Exception as e:
         answer = f"调用 DeepSeek API 出错: {e}"
     generate_ms = t_gen.ms()
-    log_event(
+    _log_search_event(
         "ask", ok=True, total_ms=round(t_all.ms(), 1),
         qp_ms=round(qp_ms, 1), retrieve_ms=round(retrieve_ms, 1),
         bm25_ms=rt.get("bm25_ms"), vector_ms=rt.get("vector_ms"),
         rerank_ms=rt.get("rerank_ms"), mmr_ms=rt.get("mmr_ms"),
         hyde_ms=hyde_ms, generate_ms=round(generate_ms, 1),
         tokens_in=tokens_in, tokens_out=tokens_out, hits=len(results),
-        hyde=use_hyde, mmr=mmr,
+        hyde=use_hyde, mmr=mmr, top_k=top_k, filters=bool(filters),
+        filter_engine=rt.get("filter_engine"), corpus=_active_corpus_name(),
     )
     return {"ok": True, "answer": _linkify_answer(answer or "", used), "citations": citations}
 
@@ -1087,6 +1162,23 @@ def corpus_rename(req: CorpusRenameReq):
 @app.get("/meta/vocab")
 def meta_vocab():
     return meta_vocab_kb()
+
+
+# ---- MySQL 结构化分析层 ----
+@app.get("/mysql/stats")
+def mysql_stats():
+    return mysql_stats_kb()
+
+
+@app.get("/mysql/report")
+def mysql_report(kind: str = "latency", run_tag: str = None):
+    return mysql_report_kb(kind, run_tag)
+
+
+@app.post("/mysql/sync")
+def mysql_sync(req: MysqlSyncReq = None):
+    req = req or MysqlSyncReq()
+    return mysql_sync_kb(req.corpus_name, req.results_dir)
 
 
 @app.get("/survey/list")
@@ -1269,6 +1361,22 @@ def mcp_search(query: str, top_k: int = 5, year_min: int = None, year_max: int =
 def mcp_stats() -> dict:
     """本地知识库统计：总块数、各来源文档块数与运行统计。用于判断库内是否包含相关领域资料。"""
     return stats_kb()
+
+
+@mcp.tool(name="db_report")
+def mcp_db_report(kind: str = "stats", run_tag: str = None) -> dict:
+    """结构化分析层（MySQL）报表——用 SQL 聚合而不是翻日志文件，回答"检索/评测表现如何"时用：
+    - kind="stats"（默认）：各表行数、语料/年份分布、日志来源与筛选引擎自检；
+    - kind="latency"：检索与问答延迟分位、HyDE/MMR 开关对比（窗口函数视图）；
+    - kind="eval"：各分块方法的 recall@5/MRR/nDCG/EM/F1/裁判分对比（run_tag 可选）；
+    - kind="tags"：方法/任务标签 × 年份的文献分布。
+    MySQL 未启动或未同步时返回 ok=False；此时提示用户点面板「数据库」的一键同步，
+    或命令行跑 python sync_mysql.py --sync。
+    """
+    kind = (kind or "stats").strip().lower()
+    if kind == "stats":
+        return mysql_stats_kb()
+    return mysql_report_kb(kind, run_tag)
 
 
 @mcp.tool(name="build")

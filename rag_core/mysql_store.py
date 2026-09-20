@@ -129,20 +129,25 @@ _DDL_TABLES = [
 
     """CREATE TABLE IF NOT EXISTS fact_search_log (
         log_id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        ts DATETIME NOT NULL,
+        rid VARCHAR(16),
+        ts DATETIME(3) NOT NULL,
         event_type VARCHAR(20) NOT NULL,
         corpus_name VARCHAR(100),
         top_k SMALLINT,
         use_hyde TINYINT(1) DEFAULT 0,
         use_mmr TINYINT(1) DEFAULT 1,
         has_filters TINYINT(1) DEFAULT 0,
+        filter_engine VARCHAR(8),
         total_ms FLOAT, qp_ms FLOAT, retrieve_ms FLOAT,
         bm25_ms FLOAT, vector_ms FLOAT, rerank_ms FLOAT,
         mmr_ms FLOAT, hyde_ms FLOAT, generate_ms FLOAT,
         hits SMALLINT, ok TINYINT(1) DEFAULT 1,
         tokens_in INT, tokens_out INT,
-        src_line INT NOT NULL,
+        src_line INT NULL,
+        source VARCHAR(8) NOT NULL DEFAULT 'etl',
+        UNIQUE KEY uk_rid (rid),
         UNIQUE KEY uk_src_line (src_line),
+        KEY idx_ts_event (ts, event_type),
         KEY idx_ts (ts),
         KEY idx_event (event_type),
         KEY idx_hyde_mmr (use_hyde, use_mmr)
@@ -193,6 +198,68 @@ _DDL_VIEWS = [
 ]
 
 
+def _has_column(cur, table: str, column: str) -> bool:
+    cur.execute("""SELECT COUNT(*) FROM information_schema.columns
+                   WHERE table_schema = DATABASE() AND table_name = %s
+                     AND column_name = %s""", (table, column))
+    return bool(cur.fetchone()[0])
+
+
+def _has_index(cur, table: str, index: str) -> bool:
+    cur.execute("""SELECT COUNT(*) FROM information_schema.statistics
+                   WHERE table_schema = DATABASE() AND table_name = %s
+                     AND index_name = %s""", (table, index))
+    return bool(cur.fetchone()[0])
+
+
+def _migrate(cur) -> List[str]:
+    """老库结构升级（幂等）：P2 起支持"实时落库"，需要区分来源并与 ETL 补录去重。
+
+    P1 的 fact_search_log 只服务 ETL 补录（src_line 非空且唯一）；
+    P2 检索时直接写库：这种行没有 jsonl 行号，所以 src_line 放开为可空
+    （MySQL 唯一索引允许多个 NULL，ETL 的幂等性不受影响）。
+    两条路径的去重靠 rid（日志记录自带唯一 id）：实时落库与补录写的是同一条记录，
+    补录时按 rid 反查即可精确跳过——时间戳只有毫秒精度，当幂等键会误判
+    （实测历史数据里就有同秒同耗时的记录，唯一键根本建不起来）。
+    """
+    applied = []
+    stmts = []
+    if not _has_column(cur, "fact_search_log", "source"):
+        stmts.append(("source 列",
+                      "ALTER TABLE fact_search_log ADD COLUMN source VARCHAR(8) "
+                      "NOT NULL DEFAULT 'etl'"))
+    if not _has_column(cur, "fact_search_log", "filter_engine"):
+        stmts.append(("filter_engine 列",
+                      "ALTER TABLE fact_search_log ADD COLUMN filter_engine VARCHAR(8)"))
+    if not _has_column(cur, "fact_search_log", "rid"):
+        stmts.append(("rid 幂等键",
+                      "ALTER TABLE fact_search_log ADD COLUMN rid VARCHAR(16)"))
+    if not _has_index(cur, "fact_search_log", "uk_rid"):
+        stmts.append(("uk_rid 唯一索引",
+                      "ALTER TABLE fact_search_log ADD UNIQUE KEY uk_rid (rid)"))
+    if _has_index(cur, "fact_search_log", "uk_src_line"):
+        stmts.append(("src_line 放开为可空",
+                      "ALTER TABLE fact_search_log MODIFY COLUMN src_line INT NULL"))
+    if not _has_index(cur, "fact_search_log", "idx_ts_event"):
+        stmts.append(("补录去重索引 idx_ts_event",
+                      "ALTER TABLE fact_search_log ADD KEY idx_ts_event (ts, event_type)"))
+    # 毫秒精度：实时行与 ETL 行要在同一秒内也能精确对齐（P1 建的库是秒精度）
+    cur.execute("""SELECT DATETIME_PRECISION FROM information_schema.columns
+                   WHERE table_schema = DATABASE() AND table_name = 'fact_search_log'
+                     AND column_name = 'ts'""")
+    row = cur.fetchone()
+    if row and (row[0] or 0) < 3:
+        stmts.append(("ts 毫秒精度",
+                      "ALTER TABLE fact_search_log MODIFY COLUMN ts DATETIME(3) NOT NULL"))
+    for label, ddl in stmts:
+        try:
+            cur.execute(ddl)
+            applied.append(label)
+        except Exception as e:          # 单项失败不阻塞其余迁移
+            applied.append(f"{label}(跳过: {str(e)[:60]})")
+    return applied
+
+
 def ensure_schema(db: Optional[str] = None) -> Dict:
     """建库 + 建表 + 建视图（幂等）。返回 {ok, db, tables, views, error}。"""
     dbname = db or config.MYSQL_DB
@@ -206,6 +273,7 @@ def ensure_schema(db: Optional[str] = None) -> Dict:
         with conn.cursor() as cur:
             for ddl in _DDL_TABLES:
                 cur.execute(ddl)
+            migrations = _migrate(cur)
             errors = []
             for ddl in _DDL_VIEWS:
                 try:
@@ -215,7 +283,7 @@ def ensure_schema(db: Optional[str] = None) -> Dict:
         conn.close()
         return {"ok": True, "db": dbname,
                 "tables": len(_DDL_TABLES), "views": len(_DDL_VIEWS),
-                "view_errors": errors}
+                "migrations": migrations, "view_errors": errors}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
@@ -261,6 +329,85 @@ def _state_get(cur, key: str, default: int = 0) -> int:
 def _state_set(cur, key: str, value) -> None:
     cur.execute("INSERT INTO etl_state (k, v) VALUES (%s, %s) "
                 "ON DUPLICATE KEY UPDATE v=VALUES(v)", (key, str(value)))
+
+
+# --------------------------------------------------------------------------
+# 检索日志：行映射（实时落库与 ETL 补录共用）
+# --------------------------------------------------------------------------
+_LOG_COLS = ("rid", "ts", "event_type", "corpus_name", "top_k", "use_hyde", "use_mmr",
+             "has_filters", "filter_engine", "total_ms", "qp_ms", "retrieve_ms",
+             "bm25_ms", "vector_ms", "rerank_ms", "mmr_ms", "hyde_ms",
+             "generate_ms", "hits", "ok", "tokens_in", "tokens_out",
+             "src_line", "source")
+
+_LOG_IDX = {c: i for i, c in enumerate(_LOG_COLS)}
+
+_INSERT_LOG_SQL = ("INSERT IGNORE INTO fact_search_log ("
+                   + ", ".join(_LOG_COLS) + ") VALUES ("
+                   + ", ".join(["%s"] * len(_LOG_COLS)) + ")")
+
+
+def _log_row(entry: Dict, src_line: Optional[int] = None,
+             source: str = "live") -> Tuple:
+    """observability 事件 → fact_search_log 一行。
+
+    实时落库和 ETL 补录都走这里，字段映射严格一致（尤其是 rid 与 t）：
+    补录时按 rid 反查就能知道"这条是不是已经实时写过了"（见 _rid_exists）。
+    """
+    ts = entry.get("t")
+    try:
+        ts_dt = datetime.fromtimestamp(float(ts)) if ts else datetime.now()
+    except (TypeError, ValueError):
+        ts_dt = datetime.now()
+    return (
+        (entry.get("rid") or None),
+        ts_dt, str(entry.get("event") or "")[:20],
+        (entry.get("corpus") or None),
+        _i(entry.get("top_k")),
+        1 if entry.get("hyde") else 0,
+        0 if entry.get("mmr") is False else 1,
+        1 if entry.get("filters") else 0,
+        (entry.get("filter_engine") or None),
+        _f(entry.get("total_ms")), _f(entry.get("qp_ms")), _f(entry.get("retrieve_ms")),
+        _f(entry.get("bm25_ms")), _f(entry.get("vector_ms")), _f(entry.get("rerank_ms")),
+        _f(entry.get("mmr_ms")), _f(entry.get("hyde_ms")), _f(entry.get("generate_ms")),
+        _i(entry.get("hits")), 1 if entry.get("ok", True) else 0,
+        _i(entry.get("tokens_in")), _i(entry.get("tokens_out")),
+        src_line, source,
+    )
+
+
+def _rid_exists(cur, rid: Optional[str]) -> bool:
+    """该日志记录（rid）是否已经落库？实时落库与 ETL 补录共用这一幂等键。"""
+    if not rid:
+        return False                      # 老日志没有 rid → 交给 uk_src_line 幂等
+    cur.execute("SELECT 1 FROM fact_search_log WHERE rid = %s LIMIT 1", (rid,))
+    return cur.fetchone() is not None
+
+
+def insert_search_log(entry: Dict) -> bool:
+    """检索/问答日志实时落库（结构化分析层），失败静默返回 False。
+
+    设计取舍：jsonl 仍是"事实日志"（进程崩了也不丢），MySQL 是分析镜像。
+    实时写入让面板报表即时反映行为；写失败（MySQL 没起/网络断）不影响检索主流程，
+    之后用 sync_search_logs 补录即可——两条路径互为兜底并按 rid 去重。
+    """
+    if not entry or entry.get("event") not in ("search", "ask"):
+        return False
+    conn = None
+    try:
+        conn = _connect()
+        with conn.cursor() as cur:
+            cur.execute(_INSERT_LOG_SQL, _log_row(entry, src_line=None, source="live"))
+        conn.close()
+        return True
+    except Exception:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return False
 
 
 def sync_corpus_meta(corpus_name: str, meta_path: str, kb_path: str) -> Dict:
@@ -371,7 +518,12 @@ def sync_chunks(corpus_name: str, kb_path: str) -> Dict:
 
 
 def sync_search_logs(log_path: str, batch: int = 2000) -> Dict:
-    """增量同步检索/问答日志（按 jsonl 行号幂等；文件被截断则从头重来）。"""
+    """增量同步检索/问答日志（按 jsonl 行号幂等；文件被截断则从头重来）。
+
+    与实时落库（insert_search_log）共用同一行映射；补录前先按 rid 反查该记录是否已落库，
+    已落库就跳过，所以"实时写一份 + 事后补录一份"不会重复计数。
+    MySQL 当时不可用而漏写的行，这里正好补上——两条路径互为兜底。
+    """
     if not os.path.isfile(log_path):
         return {"ok": False, "error": f"日志不存在: {log_path}"}
     try:
@@ -388,7 +540,7 @@ def sync_search_logs(log_path: str, batch: int = 2000) -> Dict:
             if done > len(lines):
                 done = 0                      # 文件被清空/截断 → 重来
             todo = lines[done:done + batch]
-            inserted = 0
+            inserted = skipped_dup = 0
             for offset, ln in enumerate(todo):
                 src_line = done + offset + 1
                 ln = ln.strip()
@@ -400,31 +552,16 @@ def sync_search_logs(log_path: str, batch: int = 2000) -> Dict:
                     continue
                 if d.get("event") not in ("search", "ask"):
                     continue
-                ts = d.get("t")
-                try:
-                    ts_dt = datetime.fromtimestamp(float(ts)) if ts else datetime.now()
-                except (TypeError, ValueError):
-                    ts_dt = datetime.now()
-                cur.execute(
-                    """INSERT IGNORE INTO fact_search_log
-                       (ts, event_type, top_k, use_hyde, use_mmr, has_filters,
-                        total_ms, qp_ms, retrieve_ms, bm25_ms, vector_ms, rerank_ms,
-                        mmr_ms, hyde_ms, generate_ms, hits, ok, tokens_in, tokens_out, src_line)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (ts_dt, d.get("event"), _i(d.get("top_k")),
-                     1 if d.get("hyde") else 0,
-                     0 if d.get("mmr") is False else 1,
-                     1 if d.get("filters") else 0,
-                     _f(d.get("total_ms")), _f(d.get("qp_ms")), _f(d.get("retrieve_ms")),
-                     _f(d.get("bm25_ms")), _f(d.get("vector_ms")), _f(d.get("rerank_ms")),
-                     _f(d.get("mmr_ms")), _f(d.get("hyde_ms")), _f(d.get("generate_ms")),
-                     _i(d.get("hits")), 1 if d.get("ok", True) else 0,
-                     _i(d.get("tokens_in")), _i(d.get("tokens_out")), src_line))
+                row = _log_row(d, src_line=src_line, source="etl")
+                if _rid_exists(cur, row[_LOG_IDX["rid"]]):
+                    skipped_dup += 1          # 实时落库已写过这条记录
+                    continue
+                cur.execute(_INSERT_LOG_SQL, row)
                 inserted += cur.rowcount
             _state_set(cur, "search_log_lines", done + len(todo))
         conn.close()
         return {"ok": True, "scanned": len(todo), "inserted": inserted,
-                "total_lines": len(lines)}
+                "skipped_dup": skipped_dup, "total_lines": len(lines)}
     except Exception as e:
         if conn:
             try:
@@ -546,23 +683,57 @@ def build_doc_filter_sql(filters: Dict, corpus_name: str = None) -> Tuple[str, L
     return " ".join(sql), params
 
 
-def filter_docs_by_sql(filters: Dict, corpus_name: Optional[str] = None) -> Optional[List[str]]:
-    """用 SQL 查符合结构化条件的文献白名单。
+def count_docs(corpus_name: str) -> Optional[int]:
+    """MySQL 里某语料的文献数；语料不存在或 MySQL 不可用 → None。"""
+    try:
+        conn = _connect()
+        with conn.cursor() as cur:
+            cur.execute("""SELECT COUNT(*) FROM dim_document d
+                           JOIN dim_corpus c ON c.corpus_id = d.corpus_id
+                           WHERE c.name = %s""", (corpus_name,))
+            n = cur.fetchone()[0]
+        conn.close()
+        return int(n)
+    except Exception:
+        return None
+
+
+def filter_docs_by_sql(filters: Dict, corpus_name: Optional[str] = None,
+                       expected_docs: Optional[int] = None) -> Optional[List[str]]:
+    """用 SQL 查符合结构化条件的文献白名单（双引擎的"结构化"那一半）。
     - 条件为空 → None（不筛选）；
     - MySQL 不可用 / 查询失败 → None（**降级**：调用方回退 Python 内存掩码）；
     - 查询成功但无匹配 → []（明确的空结果）。
+
+    一致性守卫（很重要）：只有 MySQL 镜像与当前 KB 文档集合一致时才敢用 SQL 结果。
+    语料没同步过（0 篇）或文库数与 expected_docs 不符（同步后又新增/删除了文献），
+    都返回 None 触发降级——否则白名单会漏掉新文献，变成静默的召回缺失。
+    宁可慢一点走内存掩码，也不能因为镜像过期而答漏。
     """
     filters = {k: v for k, v in (filters or {}).items() if v not in (None, [], "")}
     if not filters:
         return None
+    if corpus_name:
+        n_db = count_docs(corpus_name)
+        if not n_db:                             # None（不可用）或 0（未同步）
+            return None
+        if expected_docs is not None and n_db != expected_docs:
+            return None
     sql, params = build_doc_filter_sql(filters, corpus_name)
+    conn = None
     try:
         conn = _connect()
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            return [r[0] for r in cur.fetchall()]
+            rows = [r[0] for r in cur.fetchall()]
         conn.close()
+        return rows
     except Exception:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
         return None
 
 
@@ -586,6 +757,13 @@ def stats() -> Dict:
                            WHERE d.year IS NOT NULL
                            GROUP BY c.name, d.year ORDER BY d.year""")
             out["by_year"] = [{"corpus": r[0], "year": r[1], "docs": _num(r[2])} for r in cur.fetchall()]
+            # 日志来源：live=检索时实时落库，etl=jsonl 补录（用于自检双写是否生效）
+            cur.execute("SELECT source, COUNT(*) FROM fact_search_log GROUP BY source")
+            out["log_source"] = {(r[0] or "etl"): _num(r[1]) for r in cur.fetchall()}
+            # 结构化筛选实际走的是哪条引擎（mysql=SQL 白名单，memory=内存掩码降级）
+            cur.execute("""SELECT COALESCE(filter_engine, '-'), COUNT(*) FROM fact_search_log
+                           WHERE has_filters = 1 GROUP BY 1 ORDER BY 2 DESC""")
+            out["filter_engine"] = {(r[0]): _num(r[1]) for r in cur.fetchall()}
         conn.close()
         return out
     except Exception as e:

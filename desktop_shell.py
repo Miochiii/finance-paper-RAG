@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 desktop_shell.py —— 桌面壳（PyWebview 双窗口）
 
@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 import webview
@@ -256,6 +257,32 @@ class Api:
         try:
             req = urllib.request.Request(MCP_BASE + "/survey/list")
             with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # ---- MySQL 结构化分析层（面板「数据库」区块）----
+    def mysql_stats(self):
+        return self._http_json("/mysql/stats", timeout=20)
+
+    def mysql_report(self, kind="latency"):
+        return self._http_json("/mysql/report?kind=" + urllib.parse.quote(str(kind or "latency")),
+                               timeout=30)
+
+    def mysql_sync(self):
+        """一键同步（维表/块表/评测/日志补录）：长任务，超时给足。"""
+        return self._http_json("/mysql/sync", method="POST", payload={}, timeout=600)
+
+    def _http_json(self, path, method="GET", payload=None, timeout=20):
+        try:
+            data = None
+            headers = {}
+            if payload is not None:
+                data = json.dumps(payload).encode("utf-8")
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(MCP_BASE + path, data=data, headers=headers,
+                                         method=method)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except Exception as e:
             return {"ok": False, "error": str(e)}
