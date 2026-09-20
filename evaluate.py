@@ -607,6 +607,43 @@ _CSV_HEADER = ["qid", "question", "chunk_method", "recall@5", "mrr", "ndcg@5",
                "judge_corr", "judge_faith", "judge_reason", "error"]
 
 
+def _pid_alive(pid: int) -> bool:
+    """进程存活探测（跨平台安全）。
+
+    ⚠️ 绝不能用 os.kill(pid, 0) 探测 Windows 进程：Windows 上 os.kill 是
+    TerminateProcess 的封装，sig=0 也会**直接把目标进程杀掉**。
+    （实测事故：互斥守卫最初用 os.kill 探测，把正在运行的评测进程杀了。）
+    Windows 走 OpenProcess + GetExitCodeProcess；POSIX 才用 os.kill(pid, 0)。
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.OpenProcess.restype = wintypes.HANDLE
+            handle = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+            if not handle:
+                return False
+            try:
+                code = wintypes.DWORD()
+                if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return False
+                return code.value == STILL_ACTIVE
+            finally:
+                k32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 def _eval_run_lock() -> Optional[str]:
     """评测互斥：同一项目同时只允许一个评测进程。
 
@@ -622,17 +659,10 @@ def _eval_run_lock() -> Optional[str]:
             pid, started = int(info.get("pid", 0)), info.get("started", "")
         except Exception:
             pid, started = 0, ""
-        if pid:
-            alive = True
-            try:
-                os.kill(pid, 0)          # 仅探测存活，不发送信号
-            except OSError:
-                alive = False
-            except Exception:
-                alive = True
-            if alive:
-                return (f"已有评测在运行（pid={pid}，启动于 {started}）。"
-                        f"等它结束后再跑；若确认它已卡死，删除 {lock_path} 后重试。")
+        if pid and _pid_alive(pid):
+            return (f"已有评测在运行（pid={pid}，启动于 {started}）。"
+                    f"等它结束后再跑；若确认它已卡死，结束该进程后重试"
+                    f"（陈旧锁会被自动接管，也可直接删除 {lock_path}）。")
     with open(lock_path, "w", encoding="utf-8") as fp:
         json.dump({"pid": os.getpid(),
                    "started": time.strftime("%Y-%m-%d %H:%M:%S")}, fp)
