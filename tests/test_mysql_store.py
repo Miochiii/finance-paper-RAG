@@ -183,7 +183,14 @@ class TestIntegration:
             py_docs = {c["source"] for c in kb if match_meta_filter(c, f)}
             assert sql_docs == py_docs, f"筛选不一致: {case} SQL={sql_docs} Py={py_docs}"
 
-        # 报表入口可跑通
-        assert isinstance(ms.report_latency(), list)
+        # 报表入口可跑通，且返回值必须可 JSON 序列化（回归：MySQL 的 ROUND/AVG 返回 Decimal）
+        lat = ms.report_latency()
+        assert isinstance(lat, list)
         assert isinstance(ms.report_tag_distribution(), list)
-        assert isinstance(ms.report_eval_compare("test"), list)
+        cmp_rows = ms.report_eval_compare("test")
+        assert isinstance(cmp_rows, list)
+        json.dumps(lat, ensure_ascii=False)
+        json.dumps(cmp_rows, ensure_ascii=False)
+        json.dumps(ms.stats(), ensure_ascii=False)
+        if cmp_rows:
+            assert isinstance(cmp_rows[0]["recall5"], float)

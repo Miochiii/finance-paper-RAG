@@ -24,9 +24,17 @@
 import json
 import os
 from datetime import datetime
+from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
 from rag_core import config
+
+
+def _num(v):
+    """Decimal → float：MySQL 的 ROUND/AVG 返回 Decimal，json 需要原始类型。"""
+    if isinstance(v, Decimal):
+        return float(v)
+    return v
 
 # --------------------------------------------------------------------------
 # 连接
@@ -577,7 +585,7 @@ def stats() -> Dict:
                            FROM dim_document d JOIN dim_corpus c USING(corpus_id)
                            WHERE d.year IS NOT NULL
                            GROUP BY c.name, d.year ORDER BY d.year""")
-            out["by_year"] = [{"corpus": r[0], "year": r[1], "docs": r[2]} for r in cur.fetchall()]
+            out["by_year"] = [{"corpus": r[0], "year": r[1], "docs": _num(r[2])} for r in cur.fetchall()]
         conn.close()
         return out
     except Exception as e:
@@ -592,7 +600,8 @@ def report_latency() -> List[Dict]:
             cur.execute("""SELECT use_hyde, use_mmr, event_type, n, avg_ms, p95_ms, avg_hits
                            FROM v_hyde_mmr_latency ORDER BY event_type, use_hyde, use_mmr""")
             rows = [{"use_hyde": r[0], "use_mmr": r[1], "event_type": r[2],
-                     "n": r[3], "avg_ms": r[4], "p95_ms": r[5], "avg_hits": r[6]}
+                     "n": r[3], "avg_ms": _num(r[4]), "p95_ms": _num(r[5]),
+                     "avg_hits": _num(r[6])}
                     for r in cur.fetchall()]
         conn.close()
         return rows
@@ -635,7 +644,7 @@ def report_eval_compare(run_tag: Optional[str] = None) -> List[Dict]:
                                FROM fact_eval GROUP BY method ORDER BY method""")
             keys = ["method", "n", "recall5", "mrr", "ndcg5", "recall5_c",
                     "mrr_c", "ndcg5_c", "f1", "judge_corr", "judge_faith"]
-            rows = [dict(zip(keys, r)) for r in cur.fetchall()]
+            rows = [dict(zip(keys, [_num(x) for x in r])) for r in cur.fetchall()]
         conn.close()
         return rows
     except Exception:
