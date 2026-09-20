@@ -51,6 +51,7 @@ rag-finance/
 ├── panel.html               # 知识库面板
 ├── editor.html              # 综述编辑器页面（/editor，浏览器新标签页）
 ├── evaluate.py              # 分块消融评测框架（5 方法 + 配对显著性检验）
+├── claim_audit.py           # 引用/证据审计：结论级核查"有没有证据支撑"
 ├── build_docs_cache_v2.py   # MinerU 输出 → 评测用文档缓存
 ├── tests/                   # 单元测试（pytest，无需 GPU，151 项）
 ├── docs/
@@ -190,6 +191,35 @@ python sync_mysql.py --filter "year_min=2020;methods=机器学习,深度学习;t
 
 接口：`GET /mysql/stats`、`GET /mysql/report?kind=latency|eval|tags`、`POST /mysql/sync`；MCP 工具 `db_report`（agent 可直接问"检索延迟分布如何"）。连接参数用 `RAG_MYSQL_*` 环境变量或 `.env` 覆盖（`RAG_MYSQL_PASSWORD` 等），默认库名 `rag_analytics`。
 
+## 可信度审计（引用 / 证据）
+
+`claim_audit.py` 把生成答案拆成「结论」，逐条核查是否有证据支撑——度量的是 LLM-judge 忠实性**看不到**的东西：
+
+```bash
+python claim_audit.py --from-live        # 自洽口径：线上检索 → 现场重新生成 → 审计同一份证据
+python claim_audit.py --limit 3          # 小样试跑（先确认提示词与解析正常）
+python claim_audit.py --method discourse # 审计历史评测 CSV 的答案（上下文未存档，解读需谨慎）
+```
+
+口径与统计：证据池用生产配置（top_k=5、MMR 开）；每条结论判定 `supported / partial / unsupported / meta`
+（`meta` = 对上下文的描述或拒答，不计入无支撑率，避免把"我不知道"当成错误）；同时检查引用编号是否
+指向真实存在的证据块；比例按**题目级**聚合后用 t 区间给出置信区间（同题内结论相关，直接池化会高估显著性）。
+
+在自建金融论文语料上的基线（40 题 / 209 条内容性结论，`hmm` 分块）：
+
+| 指标 | 数值 |
+|---|---|
+| 无证据支撑的结论 | **1.0%**（2/209；Wilson 95% CI 0.3%~3.4%） |
+| 部分支持（关键要素在证据里查不到） | 5.7%（12/209） |
+| 描述 / 拒答类（不计入分母） | 11.5%（24/209） |
+| gold 文献被召回 | 95.0%（38/40 题） |
+| 引用编号越界（引用了不存在的来源号） | 0 处 |
+
+**这个基线改变了优化方向**：生成层几乎没有编造（1%），再加一层引用校验收益有限；
+真正的风险在**证据层**——没召回到正确文献时系统不会弃答，仍会给出自信、数字具体、连 LLM-judge
+都打满分的结论（忠实 ≠ 证据正确）。因此后续把力气放在「证据充分性判断 → 弃答 / 定向补检索」，
+而不是继续堆生成侧的校验。原始汇总见 `results/claim_audit_summary_*.md`（`results/` 不入库）。
+
 ## 测试
 
 ```bash
@@ -197,7 +227,7 @@ pip install pytest
 python -m pytest tests -q     # 全部为纯函数测试，不需要 GPU 与服务
 ```
 
-共 151 项：核心管线纯函数测试 + 双引擎/双写的行为测试；MySQL 集成测试在检测到本机可用连接时才跑（CI 上自动跳过，用独立测试库 `rag_analytics_test`，跑完即删）。测试期间观测日志与分析库写入都会改指向（`tests/conftest.py`），不会污染真实数据。
+共 160 项：核心管线纯函数测试 + 双引擎/双写行为测试 + 审计工具测试；MySQL 集成测试在检测到本机可用连接时才跑（CI 上自动跳过，用独立测试库 `rag_analytics_test`，跑完即删）。测试期间观测日志与分析库写入都会改指向（`tests/conftest.py`），不会污染真实数据。
 
 ## 评测（分块消融）
 
