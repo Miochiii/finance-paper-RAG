@@ -607,8 +607,51 @@ _CSV_HEADER = ["qid", "question", "chunk_method", "recall@5", "mrr", "ndcg@5",
                "judge_corr", "judge_faith", "judge_reason", "error"]
 
 
+def _eval_run_lock() -> Optional[str]:
+    """评测互斥：同一项目同时只允许一个评测进程。
+
+    起因为实测事故：两个评测并发时，后到者先清空了 results/vector_db/<method>，
+    再去打开 qdrant 存储才报锁失败——先到者的索引被毁，两边都没拿到结果。
+    这里在入口处就拦住（含陈旧锁识别：持有者进程已退出则视为陈旧锁并接管）。
+    """
+    lock_path = os.path.join(OUTPUT_DIR, ".eval.lock")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    if os.path.exists(lock_path):
+        try:
+            info = json.load(open(lock_path, encoding="utf-8"))
+            pid, started = int(info.get("pid", 0)), info.get("started", "")
+        except Exception:
+            pid, started = 0, ""
+        if pid:
+            alive = True
+            try:
+                os.kill(pid, 0)          # 仅探测存活，不发送信号
+            except OSError:
+                alive = False
+            except Exception:
+                alive = True
+            if alive:
+                return (f"已有评测在运行（pid={pid}，启动于 {started}）。"
+                        f"等它结束后再跑；若确认它已卡死，删除 {lock_path} 后重试。")
+    with open(lock_path, "w", encoding="utf-8") as fp:
+        json.dump({"pid": os.getpid(),
+                   "started": time.strftime("%Y-%m-%d %H:%M:%S")}, fp)
+    return None
+
+
+def _release_eval_lock() -> None:
+    try:
+        os.remove(os.path.join(OUTPUT_DIR, ".eval.lock"))
+    except OSError:
+        pass
+
+
 def build_index(docs: Dict[str, str], method: str):
-    """对某分块方法：全文分块 -> 建 BM25+向量双索引（独立 vector_db 目录）。"""
+    """对某分块方法：全文分块 -> 建 BM25+向量双索引（独立 vector_db 目录）。
+
+    向量存储被别人占用时（陈旧锁、另一个服务实例）自动改用带时间戳的目录重试一次，
+    避免整轮评测因为一个锁而作废。
+    """
     from rag_core.retriever import HybridRetriever
     chunks, metadatas = [], []
     for i, (src, text) in enumerate(docs.items(), 1):
@@ -624,7 +667,15 @@ def build_index(docs: Dict[str, str], method: str):
     vdb = os.path.join(VECTOR_DB_ROOT, method)
     os.makedirs(vdb, exist_ok=True)
     rtr = HybridRetriever(vector_db_path=vdb)
-    n = rtr.index(chunks, metadatas)
+    try:
+        n = rtr.index(chunks, metadatas)
+    except RuntimeError as e:
+        if "占用" not in str(e):
+            raise
+        vdb2 = f"{vdb}_run{time.strftime('%H%M%S')}"
+        print(f"  [WARN] {e}\n  [WARN] 改用备用存储目录重试: {vdb2}")
+        rtr = HybridRetriever(vector_db_path=vdb2)
+        n = rtr.index(chunks, metadatas)
     print(f"  [INDEX] {method}: {n} 块")
     return rtr
 
@@ -810,7 +861,7 @@ def main():
     sources = ["finance", "hotpotqa"] if args.source == "both" else [args.source]
 
     if args.ttest_only:
-        # 只做检验：不加载文档、不重跑评测，直接读 results/ 下已有 CSV
+        # 只做检验：不加载文档、不重跑评测，直接读 results/ 下已有 CSV（秒级，不需要互斥锁）
         print("=" * 60)
         print("仅配对显著性检验（读取已有 CSV，不重跑评测）")
         print("=" * 60)
@@ -821,6 +872,18 @@ def main():
         run_ttest_only(pairs, sources)
         return
 
+    busy = _eval_run_lock()
+    if busy:
+        print(f"  [ERR] {busy}")
+        sys.exit(2)
+    try:
+        return _run_evaluation(args, methods, sources)
+    finally:
+        _release_eval_lock()
+
+
+def _run_evaluation(args, methods, sources) -> int:
+    """真正的评测流程（互斥锁已在上层持有，结束时由 finally 释放）。"""
     print("=" * 60)
     print(f"评测方法: {methods}  激活语料: {_CORPUS_PATHS.get('name') or '（未建立语料，用旧布局）'}")
     print("=" * 60)

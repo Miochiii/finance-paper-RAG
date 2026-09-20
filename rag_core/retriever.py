@@ -241,6 +241,27 @@ class HybridRetriever:
         )
         self._doc_total: Optional[int] = None      # 文献数缓存（校验 MySQL 镜像是否同步）
 
+    def _probe_vector_lock(self) -> None:
+        """探测向量存储是否被别的进程占用：占用则抛 RuntimeError（不破坏任何数据）。
+
+        qdrant 本地模式对同一存储目录只允许一个客户端实例。这里用"试开一次再关闭"
+        的方式在**清空目录之前**拿到结论，避免把别人正在用的索引删掉。
+        """
+        if not os.path.isdir(self._vector_db_path):
+            return
+        try:
+            probe = QdrantClient(path=self._vector_db_path)
+            probe.close()
+        except Exception as e:
+            if "already accessed" in str(e).lower():
+                raise RuntimeError(
+                    f"向量存储被其他进程占用（{self._vector_db_path}）："
+                    f"通常是另一个评测/服务正在跑。等它结束再试，"
+                    f"或换一个存储目录（评测会自动改用带时间戳的目录）。"
+                ) from e
+            # 其它异常（目录损坏等）不在这里拦，交给后续流程暴露真实原因
+            return
+
     def close(self):
         """关闭底层 Qdrant 本地存储句柄并释放文件锁。
         重建索引前必须调用：qdrant 本地模式同一存储目录只允许一个客户端实例，
@@ -287,6 +308,13 @@ class HybridRetriever:
         # qdrant 本地模式同名集合 delete+create 会残留旧存储段（孤儿点，id 越界），
         # 曾导致检索时 chunks[cid] IndexError（fin_035 及换 MinerU 基座后四方法全中）。
         # 根治：每次重建前清空整个存储目录，保证点集与当前 chunks 完全一致。
+        #
+        # ⚠️ 顺序很重要：必须**先探测锁、再清目录**。
+        # 反过来写（先清空、后打开）时，若另一个进程正持有该存储（qdrant 本地模式
+        # 同一目录只允许一个客户端），清空动作会把对方正在用的索引删掉，然后自己再报
+        # "already accessed by another instance" —— 结果是两边都拿不到可用索引
+        # （实测：并发跑评测时 results/vector_db/hmm 被清成空目录）。
+        self._probe_vector_lock()
         import shutil
         for entry in os.listdir(self._vector_db_path):
             p = os.path.join(self._vector_db_path, entry)
