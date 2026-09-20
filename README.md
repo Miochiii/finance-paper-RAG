@@ -53,6 +53,7 @@ rag-finance/
 ├── evaluate.py              # 分块消融评测框架（5 方法 + 配对显著性检验）
 ├── claim_audit.py           # 引用/证据审计：结论级核查"有没有证据支撑"
 ├── probe_validity.py        # E0：无标注代理指标有效性验证（相关性 + 区间 + 多重检验校正）
+├── gen_annotations.py       # 评测集扩充：候选生成 + 逐字证据 + 事实核对 + 分级审核
 ├── build_docs_cache_v2.py   # MinerU 输出 → 评测用文档缓存
 ├── tests/                   # 单元测试（pytest，无需 GPU，151 项）
 ├── docs/
@@ -228,7 +229,30 @@ pip install pytest
 python -m pytest tests -q     # 全部为纯函数测试，不需要 GPU 与服务
 ```
 
-共 180 项：核心管线纯函数测试 + 双引擎/双写行为测试 + 审计与指标有效性工具测试；MySQL 集成测试在检测到本机可用连接时才跑（CI 上自动跳过，用独立测试库 `rag_analytics_test`，跑完即删）。测试期间观测日志与分析库写入都会改指向（`tests/conftest.py`），不会污染真实数据。
+共 199 项：核心管线纯函数测试 + 双引擎/双写行为测试 + 审计/指标有效性/标注工具测试；MySQL 集成测试在检测到本机可用连接时才跑（CI 上自动跳过，用独立测试库 `rag_analytics_test`，跑完即删）。测试期间观测日志与分析库写入都会改指向（`tests/conftest.py`），不会污染真实数据。
+
+## 评测集扩充（标注生成与审核）
+
+评测结论的可信度取决于标注规模：n=40 时最小可检测效应 |ρ|≈0.31，n=120 时降到 0.18。
+`gen_annotations.py` 把扩充流程做成可复现的四道关卡，**避免"用模型生成的答案当基准"**：
+
+```bash
+python gen_annotations.py --limit 2      # 试跑（看格式与质量）
+python gen_annotations.py                # 全量：每篇论文出题（默认 3 题）
+python gen_annotations.py --fact-check   # 重算分级 + 事实核对
+python gen_annotations.py --bulk-approve 绿 --yes   # 绿区批量通过（写审计记录）
+python gen_annotations.py --merge data/annotations/finance_annotations_v2_candidates.csv
+```
+
+四道关卡：**① 证据逐字**——模型只出题与答案，`gold_chunks` 由脚本从原文摘抄，并要求模型引文必须是原文子串，
+不匹配就自动换成原文子句（`quote_fallback` 标记）；**② 事实核对**——答案里的数字与模型名必须出现在原文对应页，
+否则标黄（能查出 OCR/LaTeX 形式的误报）；**③ LLM 质检**——答案是否被证据支持、是否唯一；
+**④ 检索核验 + 分级**——gold 文献是否进 top-5、问题是否抄了标题词、是否与既有题重复（3-gram Jaccard）。
+候选默认 `status=pending`，**evaluate.py 只读 done**，所以未经审核的候选不可能进入基准。
+
+在自建金融论文语料上的一次实际扩充：38 篇 → 128 条候选，机器质检 128/128 通过、
+事实核对 126/128、检索命中 117/128，成本约 ¥0.5；逐条人工审核（17 条黄/红项 + 12 条抽检）
+后通过 126 条，评测集规模 **40 → 166 题**。
 
 ## 质量监控实验（E0：无标注代理指标的有效性）
 
