@@ -63,12 +63,26 @@ def compare_and_report(new_docs: dict, old_docs: dict, qbank: list) -> None:
     print(f"\n命中率: 旧 {old_hit}/{total}（{old_hit / total:.1%}）→ 新 {new_hit}/{total}（{new_hit / total:.1%}）")
 
 
+def _default_mineru_out() -> str:
+    """MinerU 输出目录默认值：优先激活语料目录（语料迁移后的现状），回退旧布局。"""
+    try:
+        from rag_core import corpus as corpus_mod
+        p = (corpus_mod.runtime_paths() or {}).get("mineru_out")
+        if p and os.path.isdir(p):
+            return p
+    except Exception:
+        pass
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mineru_out")
+
+
 def main():
     ap = argparse.ArgumentParser(description="MinerU 输出 → docs_cache_v2 + 新旧对比")
-    ap.add_argument("--mineru-out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "mineru_out"))
+    ap.add_argument("--mineru-out", default=_default_mineru_out(),
+                    help="MinerU 输出根目录（默认取激活语料的 mineru_out）")
     ap.add_argument("--save", default=None, help="保存为 JSON（如 data/docs_cache_v2.json）")
     args = ap.parse_args()
 
+    print(f"MinerU 输出目录: {args.mineru_out}")
     new_docs = build_docs_cache_v2(args.mineru_out)
     if not new_docs:
         print("未找到任何 MinerU 输出（确认 --mineru-out 指向 output 目录）")
