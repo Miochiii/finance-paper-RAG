@@ -58,11 +58,26 @@ MAX_GEN_RETRIES = 2
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ANNOTATIONS_CSV = os.path.join(BASE_DIR, "data", "annotations", "finance_annotations.csv")
 HOTPOTQA_JSON = os.path.join(BASE_DIR, "data", "hotpotqa_subset.json")
-DOCS_DIR = os.path.join(BASE_DIR, "data", "docs")   # 原始 PDF 目录（仅未指定 --docs-cache 时的慢速加载路径；推荐直接用 MinerU 缓存）
 OUTPUT_DIR = os.path.join(BASE_DIR, "results")
 VECTOR_DB_ROOT = os.path.join(OUTPUT_DIR, "vector_db")
-DOCS_CACHE = os.path.join(BASE_DIR, "data", "docs_cache.json")   # 文档加载缓存（避免每次重跑都 OCR）
+DOCS_CACHE = os.path.join(BASE_DIR, "data", "docs_cache.json")   # 目录解析缓存（避免每次重跑都 OCR）
+MINERU_CACHE = os.path.join(BASE_DIR, "data", "docs_cache_v2.json")  # MinerU 提取缓存（优先用，表格/公式感知）
 HMM_CHUNK_CACHE = os.path.join(BASE_DIR, "data", "hmm_chunk_cache")  # HMM 块级缓存（同文本同参数只算一次）
+
+
+def _corpus_runtime_paths() -> Dict[str, str]:
+    """激活语料的运行时路径（语料迁移后文档都在 data/corpora/<语料>/ 下）。"""
+    try:
+        from rag_core import corpus as corpus_mod
+        return corpus_mod.runtime_paths() or {}
+    except Exception:
+        return {}
+
+
+_CORPUS_PATHS = _corpus_runtime_paths()
+# 文档来源优先级：语料目录（现状）→ 迁移前的 data/docs 与 data/mineru_out（兼容旧布局）
+MINERU_OUT_DIR = _CORPUS_PATHS.get("mineru_out") or os.path.join(BASE_DIR, "data", "mineru_out")
+DOCS_DIR = _CORPUS_PATHS.get("docs") or os.path.join(BASE_DIR, "data", "docs")
 
 # ====================================================================
 # 二、Prompt（与 paper_qa.py 完全一致，保证生成配置相同）
@@ -262,7 +277,10 @@ _DOC_EXTS = (".pdf", ".docx", ".doc", ".txt")
 
 
 def _doc_dir_manifest(docs_dir: str) -> Dict[str, list]:
-    """文档目录清单：{文件名: [mtime_ns, size]}，用于检测目录增删改。"""
+    """文档目录清单：{文件名: [mtime_ns, size]}，用于检测目录增删改。
+    目录不存在时返回空清单（不抛异常）——语料迁移后旧路径可能已不存在。"""
+    if not os.path.isdir(docs_dir):
+        return {}
     files = sorted(f for f in os.listdir(docs_dir)
                    if f.lower().endswith(_DOC_EXTS) and f not in _EXCLUDE)
     man: Dict[str, list] = {}
@@ -270,6 +288,59 @@ def _doc_dir_manifest(docs_dir: str) -> Dict[str, list]:
         st = os.stat(os.path.join(docs_dir, f))
         man[f] = [st.st_mtime_ns, st.st_size]
     return man
+
+
+def _mineru_manifest(mineru_root: str) -> Dict[str, list]:
+    """MinerU 输出清单：{content_list.json 文件名: [mtime_ns, size]}，用于判断提取缓存是否过期。"""
+    from rag_core.mineru_loader import find_mineru_outputs
+    man: Dict[str, list] = {}
+    for doc, path in find_mineru_outputs(mineru_root).items():
+        try:
+            st = os.stat(path)
+            man[doc] = [st.st_mtime_ns, st.st_size]
+        except OSError:
+            continue
+    return man
+
+
+def load_mineru_docs(mineru_root: str = MINERU_OUT_DIR,
+                     cache_path: str = MINERU_CACHE) -> Optional[Dict[str, str]]:
+    """优先用 MinerU 提取缓存（表格/公式感知，秒级启动）；缺失或过期则用 MinerU 输出重建。
+
+    语料迁移后，评测的原文来源就是语料目录下的 mineru_out/batch/<文档>/vlm/*_content_list.json；
+    缓存清单按 content_list.json 的 mtime/size 校验，语料更新后自动重建。
+    """
+    if not os.path.isdir(mineru_root):
+        return None
+    manifest = _mineru_manifest(mineru_root)
+    if not manifest:
+        return None
+    if os.path.exists(cache_path) and os.path.exists(cache_path + ".manifest"):
+        try:
+            with open(cache_path + ".manifest", encoding="utf-8") as fp:
+                cached_manifest = json.load(fp)
+            if cached_manifest == manifest:
+                with open(cache_path, encoding="utf-8") as fp:
+                    docs = json.load(fp)
+                if docs:
+                    print(f"  [CACHE] 命中 MinerU 缓存 {os.path.basename(cache_path)}"
+                          f"（{len(docs)} 篇，跳过重复解析）")
+                    return docs
+            else:
+                print("  [CACHE] MinerU 输出有更新，重建提取缓存")
+        except Exception as e:
+            print(f"  [WARN] MinerU 缓存不可用（{e}），重建")
+    from rag_core.mineru_loader import build_docs_cache_v2
+    docs = build_docs_cache_v2(mineru_root)
+    if not docs:
+        return None
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, "w", encoding="utf-8") as fp:
+        json.dump(docs, fp, ensure_ascii=False)
+    with open(cache_path + ".manifest", "w", encoding="utf-8") as fp:
+        json.dump(manifest, fp, ensure_ascii=False)
+    print(f"  [CACHE] 已用 MinerU 输出重建缓存 {os.path.basename(cache_path)}（{len(docs)} 篇）")
+    return docs
 
 
 def _save_docs_cache(docs: Dict[str, str], docs_dir: str) -> None:
@@ -304,6 +375,13 @@ def load_docs(docs_dir: str = DOCS_DIR, use_cache: bool = True) -> Dict[str, str
     from rag_core.classify_file import DocumentClassifier
     analyzer = DocumentClassifier()
     docs: Dict[str, str] = {}
+    if not os.path.isdir(docs_dir):
+        print(f"  [ERR] 文档目录不存在: {docs_dir}")
+        print(f"        语料目录下的 MinerU 输出: {MINERU_OUT_DIR}"
+              f"（{'存在' if os.path.isdir(MINERU_OUT_DIR) else '不存在'}）")
+        print("        提示：一般无需指定目录，默认会优先用语料的 MinerU 提取缓存；"
+              "也可显式 --docs-cache data/docs_cache_v2.json")
+        return docs
     files = sorted(f for f in os.listdir(docs_dir)
                    if f.lower().endswith(_DOC_EXTS) and f not in _EXCLUDE)
     if not files:
@@ -707,7 +785,8 @@ def main():
     parser.add_argument("--skip-gen", action="store_true", help="只算检索指标，不调生成 API")
     parser.add_argument("--hyde", action="store_true", help="开启 HyDE 假设文档检索（每题多一次 LLM 调用）")
     parser.add_argument("--no-mmr", action="store_true", help="关闭 MMR 多样性选取（默认开启，A/B 对比用）")
-    parser.add_argument("--docs-dir", default=DOCS_DIR)
+    parser.add_argument("--docs-dir", default=None,
+                        help="文档目录（默认取激活语料目录；一般无需指定）")
     parser.add_argument("--ttest", action="store_true", help="评测后对前两种方法做配对检验")
     parser.add_argument("--ttest-only", action="store_true", help="不做评测，直接对已有 CSV 做配对检验（秒级）")
     parser.add_argument("--pairs", nargs="+", default=None, metavar="A,B",
@@ -743,7 +822,7 @@ def main():
         return
 
     print("=" * 60)
-    print(f"评测方法: {methods}  文档目录: {args.docs_dir}")
+    print(f"评测方法: {methods}  激活语料: {_CORPUS_PATHS.get('name') or '（未建立语料，用旧布局）'}")
     print("=" * 60)
 
     if args.docs_cache:
@@ -760,8 +839,14 @@ def main():
             sys.exit(1)
         print(f"  共 {len(docs)} 篇文档")
     else:
-        print("加载文档（一次，所有方法共用原文）...")
-        docs = load_docs(args.docs_dir)
+        docs = None
+        if not args.docs_dir:
+            # 默认路径：语料的 MinerU 提取缓存（表格/公式感知，秒级），过期自动重建
+            docs = load_mineru_docs()
+        docs_dir = args.docs_dir or DOCS_DIR
+        if not docs:
+            print(f"加载文档（一次，所有方法共用原文）… 目录: {docs_dir}")
+            docs = load_docs(docs_dir)
         if not docs:
             sys.exit(1)
 
