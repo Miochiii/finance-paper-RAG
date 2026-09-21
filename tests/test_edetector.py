@@ -199,6 +199,37 @@ class TestDriftInjection:
 class TestE1MultiIndicator:
     """E1：多指标混合。要点是**保持指标间相关结构**与**逐指标用自己的 m**。"""
 
+    def test_is_inf_recognizes_both_representations(self):
+        """inf 既可能是浮点也可能是字符串——只判一种会让「未检出」混进有效结果。"""
+        assert ed.is_inf(float("inf")) and ed.is_inf("inf") and ed.is_inf(" nan ")
+        assert ed.is_inf(float("nan")) and ed.is_inf(None) and ed.is_inf("")
+        assert not ed.is_inf(0.0) and not ed.is_inf("12.5") and not ed.is_inf(7)
+
+    def test_edd_horizon_excludes_late_false_alarms(self):
+        """变点后很久才响的报警不能算检出：那是零假设侧的偶发误报。"""
+        M = np.ones((2, 100))
+        M[0, 49] = 2.0        # 第 50 步报警 → 变点(40) 后 10 步
+        M[1, 89] = 2.0        # 第 90 步报警 → 变点后 50 步
+        s = ed._edd_stats(M, alpha=0.5, at=40, T_post=60, horizon=20)
+        assert s["detect_rate"] == pytest.approx(0.5)
+        assert s["late_alarm_rate"] == pytest.approx(0.5)
+        assert s["edd_mean"] == pytest.approx(10.0)
+        assert s["edd_horizon"] == 20
+        # 不限视界 = 旧口径：两条都算检出，EDD 被 50 步的那条拉高
+        s0 = ed._edd_stats(M, alpha=0.5, at=40, T_post=60, horizon=0)
+        assert s0["detect_rate"] == pytest.approx(1.0)
+        assert s0["late_alarm_rate"] == 0.0
+        assert s0["edd_mean"] == pytest.approx(30.0)
+
+    def test_edd_horizon_pre_alarm_not_counted_as_detection(self):
+        """变点前就报警的算变前误报，既不进检出也不进超时报警。"""
+        M = np.ones((2, 100))
+        M[0, 19] = 2.0        # 第 20 步报警，变点在第 40 步之前
+        s = ed._edd_stats(M, alpha=0.5, at=40, T_post=60, horizon=20)
+        assert s["pre_alarm_rate"] == pytest.approx(0.5)
+        assert s["detect_rate"] == 0.0 and s["late_alarm_rate"] == 0.0
+        assert ed.is_inf(s["edd_mean"])
+
     def test_series_matrix_intersects_rows(self):
         rows = [
             {"qid": "a", "method": "hmm", "x": "0.1", "y": "0.2"},

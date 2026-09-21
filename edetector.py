@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """edetector.py —— RAG 质量漂移的序贯检测：最小可行实现（E-detector 框架）。
 
 方法来源
@@ -371,7 +371,8 @@ def run_e1_arl(streams: np.ndarray, ms: Sequence[float], lams: np.ndarray,
 def run_e1_edd(pool: np.ndarray, ms: Sequence[float], lams: np.ndarray, alpha: float,
                at: int, delta: float, directions: Sequence[int], reps: int,
                T_pre: int, T_post: int, rng: np.random.Generator,
-               mode: str = "contaminate", targets: Optional[Sequence[int]] = None) -> List[Dict]:
+               mode: str = "contaminate", targets: Optional[Sequence[int]] = None,
+               horizon: int = 0) -> List[Dict]:
     """E1：单指标 vs 多指标混合 的 EDD（同一批联合流 + 同一次注入，配对比较）。
 
     `targets` 决定"漂移打在哪些指标上"：
@@ -401,59 +402,82 @@ def run_e1_edd(pool: np.ndarray, ms: Sequence[float], lams: np.ndarray, alpha: f
         for k in range(K):
             M = build_multi_detector(stream, ms, lams, "one", single_k=k)
             out.append({"fuse": f"单指标#{k}", "k": k, "drift_target": label,
-                        **_edd_stats(M, alpha, at, T_post)})
+                        **_edd_stats(M, alpha, at, T_post, horizon)})
         for how, name in (("mix", "全指标混合"), ("max", "全指标取最大"), ("min", "全指标取最小")):
             M = build_multi_detector(stream, ms, lams, how)
             out.append({"fuse": name, "k": -1, "drift_target": label,
-                        **_edd_stats(M, alpha, at, T_post)})
+                        **_edd_stats(M, alpha, at, T_post, horizon)})
     for r in out:
         r["delta"] = delta
         r["inject_mode"] = mode
     return out
 
 
-def _edd_stats(M: np.ndarray, alpha: float, at: int, T_post: int) -> Dict:
-    """从 M 序列算 EDD 相关统计（变前误报、检出率、EDD 均值/中位/截尾）。"""
+def is_inf(v) -> bool:
+    """判断一个统计量是否为「未检出 / 无定义」。
+
+    记录里的 inf 既可能是 `float('inf')`，也可能是字符串 `'inf'`（CSV 往返或显式转换），
+    两种都要认——早期版本只判字符串，于是 `float('inf')` 的行被当成有效 EDD 参与比较，
+    把「漂移打偏、完全没检出」的单指标和「打中了」的单指标混在一起取最小值，
+    得出了混合比单指标慢 0.4× 这种错误结论。
+    """
+    if isinstance(v, str):
+        return v.strip().lower() in ("", "inf", "infinity", "nan", "none")
+    try:
+        return not math.isfinite(float(v))
+    except (TypeError, ValueError):
+        return True
+
+
+def _edd_stats(M: np.ndarray, alpha: float, at: int, T_post: int,
+               horizon: int = 0) -> Dict:
+    """从 M 序列算 EDD 相关统计（变前误报、检出率、EDD 均值/中位/截尾）。
+
+    `horizon`（>0 时）= 只把「变点后 H 步内报警」算作检出。这很关键：不设视界时，
+    零假设侧偶发的误报（例如某个检测器对该漂移本来就无感，只是碰巧在 500 步后响了一次）
+    会被记成「检出」，于是出现「检出率 0.01、EDD 493 步」这种假象，还会把对照矩阵的
+    对角线弄脏。超出视界的报警单列 `late_alarm_rate`，不隐瞒、也不算检出。
+    """
     times = first_alarm(M, 1.0 / alpha)
     pre_alarm = float(((times > 0) & (times <= at)).mean())
-    detected = times > at
+    after = times > at
+    if horizon > 0:
+        detected = after & (times <= at + horizon)
+    else:
+        detected = after
+    late = after & ~detected
     delay = times[detected] - at
+    cap = float(horizon if horizon > 0 else T_post)
     return {
         "pre_alarm_rate": pre_alarm,
         "detect_rate": float(detected.mean()),
+        "late_alarm_rate": float(late.mean()),
+        "edd_horizon": int(horizon),
         "edd_mean": float(delay.mean()) if delay.size else float("inf"),
         "edd_median": float(np.median(delay)) if delay.size else float("inf"),
-        "edd_censored": float(np.where(detected, times - at, T_post).mean()),
+        "edd_censored": float(np.where(detected, times - at, cap).mean()),
     }
 
 
 def run_edd(pool: np.ndarray, m: float, lams: np.ndarray, how: str, alpha: float,
             at: int, delta: float, direction: int, reps: int, T_pre: int,
-            T_post: int, rng: np.random.Generator, mode: str = "contaminate") -> Dict:
+            T_post: int, rng: np.random.Generator, mode: str = "contaminate",
+            horizon: int = 0) -> Dict:
     """注入漂移后的检测延迟（EDD）。
 
-    统计口径要分清三件事：
-      - 变点**之前**就报警 = 变前误报（用 pre_alarm_rate 单列，不能算进 EDD）；
-      - 变点之后首次报警 = 真正的检测延迟；
-      - 整条流都没报警 = 截尾（按 T_post 计入 eDD_censored，并单列检出率）。
+    统计口径全部交给 `_edd_stats`（曾经这里复制了一份，结果加 `--edd-horizon` 时漏改，
+    单代理与 E1 两条路径口径不一致——直接复用以保证同源）：
+      - 变点**之前**就报警 = 变前误报（单列 pre_alarm_rate，不算检出）；
+      - 变点后 H 步内报警 = 检出；更晚 = 超时报警（late_alarm_rate）；
+      - 一直没报警 = 截尾（计入 edd_censored）。
     """
     pre = block_bootstrap(pool, reps, T_pre, 20, rng)
     post = block_bootstrap(pool, reps, T_post, 20, rng)
     stream = inject_drift(np.concatenate([pre, post], axis=1), at, delta, direction,
                           mode=mode, rng=rng)
     M = build_detectors(stream, m, lams, how)
-    times = first_alarm(M, 1.0 / alpha)
-    pre_alarm = float(((times > 0) & (times <= at)).mean())
-    detected = times > at
-    delay = times[detected] - at
-    return {
-        "delta": delta, "direction": direction, "inject_mode": mode,
-        "pre_alarm_rate": pre_alarm,
-        "detect_rate": float(detected.mean()),
-        "edd_mean": float(delay.mean()) if delay.size else float("inf"),
-        "edd_median": float(np.median(delay)) if delay.size else float("inf"),
-        "edd_censored": float(np.where(detected, times - at, T_post).mean()),
-    }
+    return {"delta": delta, "direction": direction, "inject_mode": mode,
+            **_edd_stats(M, alpha, at, T_post, horizon)}
 
 
 def load_proxy_matrix(path: Optional[str] = None, need: Sequence[str] = ()) -> Tuple[str, List[Dict]]:
@@ -580,6 +604,9 @@ def main() -> int:
     ap.add_argument("--e1-targets", default="each", choices=["each", "all"],
                     help="E1 的漂移注入方式：each=逐个指标单独退化（对照矩阵，默认）；"
                          "all=所有指标同时退化")
+    ap.add_argument("--edd-horizon", type=int, default=300,
+                    help="EDD 视界：只把变点后 H 步内的报警算作检出（0=不限，默认 300）。"
+                         "不设视界会把零假设侧的偶发误报记成检出（曾出现「检出率 0.01、EDD 493 步」的假象）")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -592,7 +619,13 @@ def main() -> int:
     if not strategies:
         # 二元/稀有事件用分位数会退化（q60 在正例率 66% 的 0/1 序列上就是 1.0 → m=1 → 永不报警）
         strategies = ["binom", "hoeffding"] if args.binarize > 0 else ["q60", "q85", "q100"]
-    rng = np.random.default_rng(args.seed)
+    # 各实验段用**独立的随机数发生器**：共用一个 rng 时，E1 的乱序 permutate（决定校准段/检验段
+    # 的抽样位置，进而决定 m）会随前面逐代理实验消耗的随机数个数变化——于是同一个 seed 下，
+    # 只要改一下 --reps/--T（本该只影响前面那段），E1 的上界 m 就整体偏移，
+    # 实测能把 ARL 结论从"全部报警"翻成"一条都不报警"。分离后各段结果互不干扰、可复现。
+    rng = np.random.default_rng([args.seed, 1])        # 逐代理 ARL/EDD
+    rng_e1 = np.random.default_rng([args.seed, 2])     # E1 多指标对照
+    rng_traj = np.random.default_rng([args.seed, 3])   # 示例轨迹
     threshold = 1.0 / args.alpha
 
     print(f"代理矩阵: {os.path.basename(matrix_path)}（{len(rows)} 行）")
@@ -684,7 +717,7 @@ def main() -> int:
                         r = run_edd(pool, m, lams, how, args.alpha_edd, at=120, delta=d,
                                     direction=direction, reps=args.reps_edd,
                                     T_pre=120, T_post=args.T, rng=rng,
-                                    mode=args.inject_mode)
+                                    mode=args.inject_mode, horizon=args.edd_horizon)
                         rec = {"experiment": "edd", "proxy": p, "m_strategy": strategy,
                                "m": round(m, 4), "window": args.window, "fuse": how,
                                "alpha": args.alpha_edd,
@@ -708,7 +741,7 @@ def main() -> int:
             print(f"\n[实验 3/E1] 单指标 vs 多指标混合：{e1_proxies}（{X.shape[0]} 题对齐）")
             n_calib_e1 = max(8, int(X.shape[0] * args.calib_frac))
             if args.shuffle:
-                perm = rng.permutation(X.shape[0])
+                perm = rng_e1.permutation(X.shape[0])
                 X = X[perm]
             Xn = np.column_stack([fit_unit(X[:n_calib_e1, k], X[:, k])
                                   for k in range(X.shape[1])])
@@ -723,11 +756,17 @@ def main() -> int:
             ms_e1 = [max(estimate_m(Xn[:n_calib_e1, k], strategies[0]), args.m_floor)
                      for k in range(Xn.shape[1])]
             pool_e1 = Xn[n_calib_e1:]
-            print("  各指标上界 m：" + "、".join(
+            print(f"  各指标上界 m（E1 统一取 --m-strategy 的第一个：{strategies[0]}）：" + "、".join(
                 f"{p}={m:.3f}" for p, m in zip(e1_proxies, ms_e1)))
+            # 稀有代理（如拒答）在校准段常常一次都不出现 → 分位数上界退化成 m_floor。
+            # 上界贴着下限会让该分量异常敏感：漂移时几拍就报警，但变前也会因偶发事件误报。
+            for p, m in zip(e1_proxies, ms_e1):
+                if m <= args.m_floor + 1e-12:
+                    print(f"  [注意] {p} 的上界触到 m_floor={args.m_floor}：校准段太短或事件太稀有，"
+                          f"该分量会偏敏感（可加大 --calib-frac 或改用 binom/hoeffding 上界）")
             lams_e1 = lambda_grid(max(ms_e1))
             # 变前 ARL（同一批联合流）
-            streams_e1 = bootstrap_rows(pool_e1, args.reps, args.T, 20, rng)
+            streams_e1 = bootstrap_rows(pool_e1, args.reps, args.T, 20, rng_e1)
             for r in run_e1_arl(streams_e1, ms_e1, lams_e1, args.alpha):
                 idx = r["k"]
                 r.update({"experiment": "e1_arl", "proxy": (e1_proxies[idx] if idx >= 0 else "全指标"),
@@ -749,8 +788,9 @@ def main() -> int:
                 dirs = [+1] * len(e1_proxies)
                 for r in run_e1_edd(pool_e1, ms_e1, lams_e1, args.alpha_edd, at=120,
                                     delta=d, directions=dirs, reps=args.reps_edd,
-                                    T_pre=120, T_post=args.T, rng=rng,
-                                    mode=args.inject_mode, targets=e1_targets):
+                                    T_pre=120, T_post=args.T, rng=rng_e1,
+                                    mode=args.inject_mode, targets=e1_targets,
+                                    horizon=args.edd_horizon):
                     idx = r["k"]
                     r.update({"experiment": "e1_edd",
                               "proxy": (e1_proxies[idx] if idx >= 0 else "全指标"),
@@ -795,10 +835,10 @@ def main() -> int:
     m0 = max(estimate_m(u0[:calib_idx[p0]], strategy0), args.m_floor)
     lams0 = lambda_grid(m0)
     thr_series = 1.0 / (args.alpha_edd if deltas else args.alpha)
-    pre = block_bootstrap(u0[calib_idx[p0]:], 1, 120, 20, rng)
-    post = block_bootstrap(u0[calib_idx[p0]:], 1, 300, 20, rng)
+    pre = block_bootstrap(u0[calib_idx[p0]:], 1, 120, 20, rng_traj)
+    post = block_bootstrap(u0[calib_idx[p0]:], 1, 300, 20, rng_traj)
     drift = inject_drift(np.concatenate([pre, post], axis=1), 120, delta0,
-                         +1, mode=args.inject_mode, rng=rng)   # 已翻正 → 一律上升
+                         +1, mode=args.inject_mode, rng=rng_traj)   # 已翻正 → 一律上升
     series_csv = os.path.join(RESULTS_DIR, f"edetector_series_{stamp}.csv")
     mix = build_detectors(drift, m0, lams0, "mix")[0]
     mx = build_detectors(drift, m0, lams0, "max")[0]
@@ -927,18 +967,35 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
         for r in e1_arl:
             am = r["arl_mean"]
             lines.append(f"| {r['fuse']}{('（' + r['proxy'] + '）') if r.get('k', -1) >= 0 else ''} | "
-                         f"{r.get('n_comp', '')} | {'inf' if am == 'inf' else f'{float(am):.1f}'} | "
+                         f"{r.get('n_comp', '')} | {'—' if is_inf(am) else f'{float(am):.1f}'} | "
                          f"{r['alarm_rate']:.2f} |")
+        # 变前 ARL 全都不报警时，必须解释清楚：这不是「检测器没用」，而是上界保守的代价，
+        # 否则读者会以为 ARL 保证没生效（保证只在报警时才有分辨率）。
+        if not any(r["alarm_rate"] > 0 for r in e1_arl):
+            lines += ["",
+                      "> 变前 ARL 全部为「—」＝ T 步内从未报警（ARL > T）：这说明**误报侧根本没有分辨率**，"
+                      "而不是检测器失效。原因是三者同时偏保守：m 取 q85（远高于均值）、阈值 1/α 很大、"
+                      "变前流本身平稳。ARL ≥ 1/α 的保证此时**平凡成立**（0 次误报），"
+                      "E1 的对照组要看**EDD 侧**；若要让 ARL 有分辨率，应回到 m 策略扫描"
+                      "（`--m-strategy mean,q60,q85,q100`）——那里可见 mix 的误报率明显低于 max。"]
         if e1_edd:
-            lines += ["", "| 配置 | 漂移目标 | Δ | 检出率 | EDD 均值 | EDD 中位 |",
-                      "|---|---|---|---|---|---|"]
+            hz = e1_edd[0].get("edd_horizon", 0)
+            lines += ["", f"| 配置 | 漂移目标 | Δ | 检出率（H={hz or '∞'} 步内） | 超时报警率 | EDD 均值 | EDD 中位 |",
+                      "|---|---|---|---|---|---|---|"]
             for r in e1_edd:
                 em = r["edd_mean"]
                 ed = r["edd_median"]
                 lines.append(f"| {r['fuse']}{('（' + r['proxy'] + '）') if r.get('k', -1) >= 0 else ''} | "
                              f"{r.get('drift_target', '')} | {r['delta']} | {r['detect_rate']:.2f} | "
-                             f"{'—' if em == 'inf' else f'{float(em):.1f}'} | "
-                             f"{'—' if ed == 'inf' else f'{float(ed):.1f}'} |")
+                             f"{r.get('late_alarm_rate', 0.0):.2f} | "
+                             f"{'—' if is_inf(em) else f'{float(em):.1f}'} | "
+                             f"{'—' if is_inf(ed) else f'{float(ed):.1f}'} |")
+            if hz:
+                lines += ["",
+                          f"> 检出率只统计**变点后 {hz} 步内**的报警；更晚才响的那些计入「超时报警率」，"
+                          "既不算检出也不隐瞒。不设视界（`--edd-horizon 0`）时，一个对该漂移本就无感的"
+                          "检测器会因零假设侧的偶发误报被记成「检出」，出现「检出率 0.01、EDD 493 步」"
+                          "这类假象，还会把对照矩阵的对角线弄脏。"]
             # 核心对照矩阵：检测器 × 漂移目标（对角线快 = 打中了它盯的指标；对角线外应失效）
             big = max(r["delta"] for r in e1_edd)
             sub = [r for r in e1_edd if r["delta"] == big]
@@ -960,25 +1017,68 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
                         else:
                             x = hit[0]
                             em = x["edd_mean"]
-                            cells.append(f"{'—' if em == 'inf' else f'{float(em):.0f}'} / {x['detect_rate']:.2f}")
+                            cells.append(f"{'—' if is_inf(em) else f'{float(em):.0f}'} / {x['detect_rate']:.2f}")
                     lines.append(f"| {d} | " + " | ".join(cells) + " |")
-            # 混合相对最好单指标的加速比
+            # 混合 vs 单指标：必须在**同一次漂移注入**下、且与**盯对指标的那个单指标**比。
+            # 两个曾经的错误：① 跨漂移目标取「最快的单指标」（拿 A 漂移的成绩比 B 漂移的混合）；
+            # ② 只看谁 EDD 小，于是把「对该漂移无感、只是零假设侧偶发误报」的单指标当成命中者
+            #    （实测出现过 493 步 / 1% 的假命中）。现在按漂移目标序号锁定对照，并要求它真的检出。
             mix_rows = [r for r in e1_edd if r["k"] == -1 and r["fuse"] == "全指标混合"]
             single_rows = [r for r in e1_edd if r["k"] >= 0]
-            for mrow in mix_rows:
-                same = [r for r in single_rows if r["delta"] == mrow["delta"]]
-                pairs = [(float(s["edd_mean"]), s["proxy"]) for s in same
-                         if s["edd_mean"] != "inf" and mrow["edd_mean"] != "inf"]
-                if pairs:
-                    best = min(pairs)
-                    lines.append(f"- Δ={mrow['delta']}：混合 EDD={float(mrow['edd_mean']):.1f} 步 "
-                                 f"vs 最好的单指标（{best[1]}）{best[0]:.1f} 步 → "
-                                 f"加速 **{best[0] / float(mrow['edd_mean']):.2f}×**")
+            for mrow in sorted(mix_rows, key=lambda x: (x["delta"], str(x.get("drift_target")))):
+                tgt = mrow.get("drift_target", "")
+                if is_inf(mrow["edd_mean"]):
+                    continue
+                want_k = None
+                if "#" in tgt:
+                    try:
+                        want_k = int(tgt.split("#")[-1])
+                    except ValueError:
+                        want_k = None
+                same = [r for r in single_rows if r["delta"] == mrow["delta"]
+                        and r.get("drift_target") == tgt]
+                matched = [r for r in same if want_k is not None and r["k"] == want_k]
+                cand = matched or same
+                good = [r for r in cand if r["detect_rate"] >= 0.5 and not is_inf(r["edd_mean"])]
+                if good:
+                    ref = min(good, key=lambda r: float(r["edd_mean"]))
+                    ratio = float(ref["edd_mean"]) / float(mrow["edd_mean"])
+                    lines.append(
+                        f"- Δ={mrow['delta']}｜{tgt}：混合 EDD={float(mrow['edd_mean']):.1f} 步 vs "
+                        f"盯对指标的单指标（{ref['proxy']}）{float(ref['edd_mean']):.1f} 步 → "
+                        f"混合慢 **{ratio:.2f}×**（对手是「事先知道漂移打在哪」的 oracle 基线）")
+                else:
+                    ref_rate = float(cand[0]["detect_rate"]) if cand else float("nan")
+                    if mrow["detect_rate"] >= 0.5:
+                        lines.append(
+                            f"- Δ={mrow['delta']}｜{tgt}：**盯对指标的单指标也没检出**"
+                            f"（检出率 {ref_rate:.2f}），混合检出 EDD={float(mrow['edd_mean']):.1f} 步 "
+                            f"→ 融合独有的鲁棒性")
+                    else:
+                        lines.append(
+                            f"- Δ={mrow['delta']}｜{tgt}：该幅度下**两个都不可靠**"
+                            f"（盯对指标的单指标 {ref_rate:.2f} vs 混合 {mrow['detect_rate']:.2f}）"
+                            f"→ 漂移太小，混合的稀释效应压过了鲁棒性收益，要看更大 Δ")
+            if single_rows:
+                # 「失效」用检出率判定（有视界时 EDD 可能仍是有限值——那是零假设侧的超时误报）；
+                # 按漂移幅度分开统计，否则强弱两种 Δ 会互相掩盖。
+                parts = []
+                for d_ in sorted({r["delta"] for r in single_rows}):
+                    s_ = [r for r in single_rows if r["delta"] == d_]
+                    m_ = [r for r in mix_rows if r["delta"] == d_]
+                    parts.append(
+                        f"Δ={d_}：单指标检出 {sum(1 for r in s_ if r['detect_rate'] >= 0.5)}/{len(s_)}，"
+                        f"混合 {sum(1 for r in m_ if r['detect_rate'] >= 0.5)}/{len(m_)}")
+                lines.append(
+                    "- **鲁棒性口径**（「检测器 × 漂移目标」组合的检出个数，按漂移幅度分开看）——"
+                    + "；".join(parts) + "。"
+                    "单指标一旦「打偏」不是变慢，而是像没装一样失效（检出率 0.00）；"
+                    "混合只需其中**任意一个**指标被漂移触及即可报警，所以对漂移类型不敏感。")
     lines += [
         "",
         f"- 示例轨迹（可直接画图，已含阈值/变点/报警步数列）：`{os.path.basename(series_csv)}`；"
         f"逐配置结果：`{os.path.basename(out_csv)}`。",
-        f"- 读表提示：ARL 显示 `inf` = 在 T={args.T} 步内从未报警（ARL > T，说明配置过保守或无功效，不是错误）。",
+        f"- 读表提示：ARL 显示「—」= 在 T={args.T} 步内从未报警（ARL > T，说明配置过保守或无功效，不是错误）。",
         "",
         "> 口径说明：变前流由**块自助重采样**构造（分块内近似平稳），漂移注入默认用"
         "**污染模型**（一部分查询变最差状态，期望均值漂移 = Δ，不饱和）；"
