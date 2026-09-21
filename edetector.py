@@ -884,11 +884,13 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
     ]
     for r in sorted(arl, key=lambda x: (x["proxy"], x["m_strategy"], x["fuse"])):
         ok_theory = r.get("m_ge_pool_mean", 1) == 1
+        am = r["arl_mean"]
+        amd = r.get("arl_median", am)
         if r.get("alarm_rate", 0) == 0:
             verdict = "⬜ 无功效（T 步内从未报警）"
         elif not ok_theory:
             verdict = "⚠️ 违反 μ ≤ m 前提"
-        elif r["arl_mean"] >= thr:
+        elif not is_inf(am) and float(am) >= thr:
             verdict = "✅ 达标"
         elif r["fuse"] == "max":
             verdict = "❌ 误报膨胀（Remark 3.1 预期）"
@@ -896,7 +898,16 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
             verdict = "⚠️ 低于 1/α"
         lines.append(f"| {r['proxy']} | {r['m_strategy']} | {r['m']} | {r.get('pool_mean', '')} | "
                      f"{'是' if ok_theory else '否'} | {r['fuse']} | "
-                     f"{r['arl_mean']:.1f} | {r['arl_median']:.1f} | {r['alarm_rate']:.2f} | {verdict} |")
+                     f"{'—' if is_inf(am) else f'{float(am):.1f}'} | "
+                     f"{'—' if is_inf(amd) else f'{float(amd):.1f}'} | "
+                     f"{r['alarm_rate']:.2f} | {verdict} |")
+    if arl and not any(r.get("alarm_rate", 0) > 0 for r in arl):
+        lines += ["",
+                  "> 本节 ARL 全部为「—」＝ T 步内从未报警（ARL > T）：**误报侧没有分辨率**，"
+                  "并非检测器失效。原因通常是三者同时偏保守：m 取 q85（远高于均值）、阈值 1/α 大、"
+                  "变前流本身平稳。此时 ARL ≥ 1/α **平凡成立**（0 次误报），"
+                  "要看功效请转第二节（EDD），或扫描更紧的 m（`--m-strategy mean,q60,q85,q100`）"
+                  "让误报侧出现可比较的差别。"]
     lines += ["", "## 二、漂移注入后的检测延迟（EDD，变点在第 120 步）", ""]
     if edd:
         lines += ["| 代理 | m 策略 | m | Δ | 融合 | 变前误报率 | 检出率 | EDD 均值 | EDD 中位 |",
