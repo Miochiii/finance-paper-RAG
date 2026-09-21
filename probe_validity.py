@@ -46,6 +46,7 @@ import rag_core.config as config  # noqa: E402
 from rag_core.config import PROJECT_DIR  # noqa: E402
 
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results")
+SERVICE_URL = os.getenv("RAG_AUDIT_URL", "http://127.0.0.1:8000")   # 补证据池用的在线服务
 METHODS = ["fixed", "discourse", "hybrid", "hmm", "hmm_fixed_k"]
 CITE_RE = re.compile(r"[\[（(]?\s*来源\s*(\d+)\s*[\]）)]?")
 REFUSAL_RE = re.compile(r"(未找到|无法(确定|回答|判断)|未(提供|明确|提及)|没有(提供|明确)|信息不足|不足以回答)")
@@ -249,6 +250,24 @@ def get_embedder():
         return None
 
 
+def fetch_evidence(question: str, top_k: int = 5, mmr: bool = True,
+                   timeout: int = 300) -> List[Dict]:
+    """向运行中的 RAG 服务要一次检索结果（与生成时的检索配置一致），作为该题的证据池。"""
+    import urllib.request
+    body = json.dumps({"query": question, "top_k": top_k, "mmr": mmr}).encode("utf-8")
+    req = urllib.request.Request(SERVICE_URL + "/search", data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    out = []
+    for i, hit in enumerate(data.get("results", []), start=1):
+        m = hit.get("metadata", {}) or {}
+        out.append({"n": i, "source": m.get("source") or "",
+                    "page_start": m.get("page_start"), "page_end": m.get("page_end"),
+                    "text": hit.get("text") or ""})
+    return out
+
+
 # --------------------------------------------------------------------------
 # 证据池补全（评测集扩到 166 题后，旧缓存只有 40 题的证据）
 # --------------------------------------------------------------------------
@@ -318,12 +337,15 @@ def clean_live_search_log(before_lines: List[str], expected: int) -> None:
 
 def fetch_missing_evidence(cache: Dict[str, List[Dict]], rows: List[Dict],
                            top_k: int, mmr: bool, cache_path: str,
-                           clean_log: bool = True) -> Dict[str, List[Dict]]:
+                           clean_log: bool = True, limit: int = 0) -> Dict[str, List[Dict]]:
     """为评测集里还没有证据池的题目补检索（走生产服务，配置与生成时一致）。
 
     166 题 × 单次 10~25 秒 ≈ 30~60 分钟；只补缺失的，支持中断续跑（每 10 题落盘一次）。
+    limit>0 时只补前 N 题（小样验证链路用）。
     """
     todo = [r for r in rows if r["qid"] not in cache]
+    if limit > 0:
+        todo = todo[:limit]
     if not todo:
         print("  证据池已完整，无需补检索")
         return cache
@@ -369,6 +391,11 @@ def main() -> int:
     ap.add_argument("--no-embed", action="store_true", help="跳过需要嵌入模型的检索侧指标")
     ap.add_argument("--fetch-missing", action="store_true",
                     help="先补齐缺失题目的证据池（走线上检索，166 题约 30~60 分钟），再跑统计")
+    ap.add_argument("--fetch-limit", type=int, default=0,
+                    help="补证据池时最多补 N 题（0=全部；先用 3 试跑验证链路）")
+    ap.add_argument("--top-k", type=int, default=5, help="证据池大小（默认 5，与生成时一致）")
+    ap.add_argument("--no-mmr", action="store_true",
+                    help="补证据池时关闭 MMR（默认开启，与生成时一致）")
     ap.add_argument("--no-clean-log", action="store_true",
                     help="补证据池后不清理观测日志/MySQL 里的批量检索记录")
     args = ap.parse_args()
@@ -396,7 +423,8 @@ def main() -> int:
           f"（{os.path.basename(cache_path)}）｜claim_audit 真值 {len(audit)} 题")
     if args.fetch_missing:
         cache = fetch_missing_evidence(cache, rows, args.top_k, not args.no_mmr,
-                                       cache_path, clean_log=not args.no_clean_log)
+                                       cache_path, clean_log=not args.no_clean_log,
+                                       limit=args.fetch_limit)
 
     embedder = None if args.no_embed else get_embedder()
 
