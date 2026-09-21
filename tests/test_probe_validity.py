@@ -112,3 +112,89 @@ class TestAnswerSideProxies:
     def test_claim_count_ignores_short_fragments(self):
         p = pv.answer_side_proxies("好。这是一条足够长的中文结论内容。又一条足够长的中文结论内容。")
         assert p["ans_n_claims"] == 2
+
+
+# --------------------------------------------------------------------------
+# 批次混淆修正（E0 v2 复核后新增的判定口径）
+# --------------------------------------------------------------------------
+class TestBatchAwareStats:
+    def test_fisher_pool_test_single_batch(self):
+        rho, p = pv.fisher_pool_test([0.4], [50])
+        assert rho == pytest.approx(0.4, abs=1e-6) and p < 0.01
+
+    def test_fisher_pool_test_skips_tiny_samples(self):
+        rho, _ = pv.fisher_pool_test([0.9, 0.4], [3, 50])   # n<5 的批次被丢弃
+        assert rho == pytest.approx(0.4, abs=1e-6)
+
+    def test_fisher_pool_test_empty(self):
+        rho, p = pv.fisher_pool_test([], [])
+        assert math.isnan(rho) and math.isnan(p)
+
+    def test_rho_diff_detects_sign_flip(self):
+        assert pv.rho_diff_p(0.5, 100, -0.4, 100) < 0.01     # 方向相反 → 差异显著
+        assert pv.rho_diff_p(0.30, 100, 0.32, 100) > 0.5      # 量级相近 → 不显著
+
+    def test_rho_diff_nan_on_bad_input(self):
+        assert math.isnan(pv.rho_diff_p(float("nan"), 100, 0.4, 100))
+
+    def test_partial_rank_removes_control_effect(self):
+        """控制变量完全解释两者时，残差无变异 → 偏相关无定义（返回 nan 是正确行为）。"""
+        rows = [{"batch": "b1", "p": float(i), "t": float(i), "len": float(i)}
+                for i in range(60)]              # p、t 完全由 len 决定
+        rho, n = pv.partial_rho_rank_from_rows(rows, "p", "t", "len", batch_key="batch")
+        assert math.isnan(rho) or abs(rho) < 0.2
+
+    def test_partial_rank_keeps_true_relation(self):
+        rows = [{"batch": "b1", "p": float(i % 7), "t": float(i % 7), "len": float(i % 13)}
+                for i in range(60)]
+        rho, _ = pv.partial_rho_rank_from_rows(rows, "p", "t", "len", batch_key="batch")
+        assert rho > 0.8
+
+    def test_partial_rank_handles_missing_control(self):
+        rows = [{"batch": "b1", "p": 1.0, "t": 1.0, "len": float("nan")} for _ in range(20)]
+        rho, n = pv.partial_rho_rank_from_rows(rows, "p", "t", "len", batch_key="batch")
+        assert math.isnan(rho) and n == 0
+
+
+class TestVarianceLevel:
+    def test_degenerate_is_constant(self):
+        assert pv.variance_level([5.0] * 20) == "degenerate"
+
+    def test_rare_binary_event_is_usable(self):
+        """拒答只有 2 例 → rare（可用但估计不稳），不能判死（它是最敏感的退化信号）。"""
+        vals = [0.0] * 40 + [1.0] * 2
+        assert pv.variance_level(vals) == "rare"
+        assert pv.variance_ok(vals) is True
+
+    def test_ok_binary_with_enough_positives(self):
+        assert pv.variance_level([0.0] * 30 + [1.0] * 5) == "ok"
+
+    def test_continuous(self):
+        assert pv.variance_level([float(i) for i in range(50)]) == "ok"
+
+    def test_balanced_binary_is_ok(self):
+        """20/20 的平衡二元量是健康分布（不是 rare）。"""
+        assert pv.variance_level([1.0, 2.0] * 20) == "ok"
+
+    def test_multi_value_discrete_ok(self):
+        assert pv.variance_level([1.0] * 10 + [2.0] * 10 + [3.0] * 10) == "ok"
+
+
+class TestBatchMap:
+    def test_loads_batch_column(self, work_tmp):
+        p = os.path.join(work_tmp, "ann_batch.csv")
+        with open(p, "w", encoding="utf-8-sig", newline="") as f:
+            f.write("id,status,question,answer,gold_docs,gold_chunks,notes,batch\n")
+            f.write("fin_001,done,q,a,d,c,n,v1_人工出题\n")
+            f.write("fin_002,done,q,a,d,c,n,v2_块锚定\n")
+            f.write("fin_003,pending,q,a,d,c,n,\n")
+        assert pv.load_batch_map(p) == {"fin_001": "v1_人工出题", "fin_002": "v2_块锚定"}
+
+    def test_missing_file_returns_empty(self, work_tmp):
+        assert pv.load_batch_map(os.path.join(work_tmp, "nope.csv")) == {}
+
+    def test_missing_column_returns_empty(self, work_tmp):
+        p = os.path.join(work_tmp, "ann_nobatch.csv")
+        with open(p, "w", encoding="utf-8-sig", newline="") as f:
+            f.write("id,status,question,answer\nfin_001,done,q,a\n")
+        assert pv.load_batch_map(p) == {}

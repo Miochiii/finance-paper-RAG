@@ -59,6 +59,34 @@ PROXY_DIRECTION = {
     "ans_citations": +1, "ans_citation_density": +1, "ans_refusal": -1,
     "ans_length": 0, "ans_n_claims": 0, "ans_claim_density": 0,
 }
+
+# 长度派生指标：与"答案长度"强相关，而真值口径（短标准答案 + 精确匹配 + judge）
+# 本身就会惩罚冗长 → 这类指标无法通过"控制长度"自证，不能当独立代理使用。
+LENGTH_DERIVED = {"ans_length", "ans_n_claims", "ans_claim_density", "ans_citations"}
+
+
+def variance_level(values: List[float], min_class: int = 3, discrete_max: int = 5) -> str:
+    """分布可用性三档：ok / rare / degenerate。
+
+    - degenerate：批次内近似常数（如 ret_n_blocks 新批次恒为 5）→ 相关性无定义，不可用；
+    - rare：离散量里稀有类别不足 min_class 例（如拒答在某批次只有 2 例）→ 可用但估计不稳，
+      必须在报告里标注；对漂移监控而言"稀有事件"往往正是最敏感的报警信号，不能直接丢弃；
+    - ok：正常。
+    连续量（取值很多）只要求确实有变异。
+    """
+    from collections import Counter
+    vals = [v for v in values if v is not None and not (isinstance(v, float) and math.isnan(v))]
+    distinct = set(vals)
+    if len(distinct) < 2:
+        return "degenerate"
+    if len(distinct) <= discrete_max:
+        return "ok" if min(Counter(vals).values()) >= min_class else "rare"
+    return "ok" if len(distinct) >= 3 else "rare"
+
+
+def variance_ok(values: List[float], min_class: int = 3, discrete_max: int = 5) -> bool:
+    """分布是否可用于相关性分析（rare 也算可用，只是不稳）。"""
+    return variance_level(values, min_class, discrete_max) != "degenerate"
 TRUTH_LABEL = {
     "judge_corr": "LLM-judge 正确性(1-5)",
     "judge_faith": "LLM-judge 忠实性(1-5)",
@@ -145,6 +173,85 @@ def norm01(vals: List[float]) -> List[float]:
     return [(v - lo) / (hi - lo) for v in vals]
 
 
+def fisher_pool_test(rhos: List[float], ns: List[int]) -> Tuple[float, float]:
+    """Fisher-z 合并多个独立样本的 ρ，并对"合并后 ρ = 0"做双侧检验。
+
+    注意：|ρ| = 1 时 atanh 发散，做法是**截断到 ±0.999999**而不是丢弃样本
+    （丢弃会把"数学上等于 1"的合法结果变成 NaN——偏相关里很常见）。
+    """
+    from scipy import stats
+    zs, ws = [], []
+    for r, n in zip(rhos, ns):
+        if r is None or (isinstance(r, float) and math.isnan(r)) or n < 5:
+            continue
+        r = max(-0.999999, min(0.999999, float(r)))
+        zs.append(math.atanh(r))
+        ws.append(n - 3)
+    if not zs or sum(ws) <= 0:
+        return float("nan"), float("nan")
+    z_bar = sum(z * w for z, w in zip(zs, ws)) / sum(ws)
+    se = math.sqrt(1.0 / sum(ws))
+    p = 2 * (1 - stats.norm.cdf(abs(z_bar) / se)) if se > 0 else float("nan")
+    return float(math.tanh(z_bar)), float(p)
+
+
+def rho_diff_p(r1: float, n1: int, r2: float, n2: int) -> float:
+    """两个独立样本的 ρ 是否有显著差异（Fisher z 检验，双侧）。"""
+    from scipy import stats
+    if any(v is None or (isinstance(v, float) and math.isnan(v)) for v in (r1, r2)):
+        return float("nan")
+    if n1 < 5 or n2 < 5:
+        return float("nan")
+    r1 = max(-0.999999, min(0.999999, float(r1)))
+    r2 = max(-0.999999, min(0.999999, float(r2)))
+    se = math.sqrt(1.0 / (n1 - 3) + 1.0 / (n2 - 3))
+    if se <= 0:
+        return float("nan")
+    z = (math.atanh(r1) - math.atanh(r2)) / se
+    return float(2 * (1 - stats.norm.cdf(abs(z))))
+
+
+def partial_rho_rank_from_rows(rows: List[Dict], proxy: str, truth: str,
+                               control: str = "ans_length",
+                               batch_key: Optional[str] = None) -> Tuple[float, int]:
+    """一阶偏相关（在秩上计算）：同时消除"长度混淆"与"批次差异"。
+
+    公式：ρ_xy|z = (ρ_xy − ρ_xz·ρ_yz) / sqrt((1−ρ_xz²)(1−ρ_yz²))，
+    在**每个批次内**分别计算，再按 Fisher-z 合并（因此也控制了批次差异）。
+    比"先回归取残差再求相关"稳健：完全共线时残差恒等会让后者算出 ρ=1 的假强相关。
+    """
+    groups: Dict[str, List[Tuple[float, float, float]]] = {}
+    for r in rows:
+        vals = [r.get(proxy), r.get(truth), r.get(control)]
+        if any(v is None or (isinstance(v, float) and math.isnan(v)) for v in vals):
+            continue
+        key = str(r.get(batch_key, "")) if batch_key else "all"
+        groups.setdefault(key, []).append((float(vals[0]), float(vals[1]), float(vals[2])))
+    parts, ns = [], []
+    total = 0
+    for key, triples in groups.items():
+        if len(triples) < 8:
+            continue
+        x = [t[0] for t in triples]
+        y = [t[1] for t in triples]
+        z = [t[2] for t in triples]
+        total += len(triples)
+        rho_xy, _ = spearman(x, y)
+        rho_xz, _ = spearman(x, z)
+        rho_yz, _ = spearman(y, z)
+        if any(math.isnan(v) for v in (rho_xy, rho_xz, rho_yz)):
+            continue
+        den = math.sqrt(max(0.0, (1 - rho_xz ** 2)) * max(0.0, (1 - rho_yz ** 2)))
+        if den < 1e-8:                      # 控制变量完全解释了某一侧 → 偏相关无定义
+            continue
+        parts.append((rho_xy - rho_xz * rho_yz) / den)
+        ns.append(len(triples))
+    if not parts:
+        return float("nan"), total
+    pooled, _ = fisher_pool_test(parts, ns)
+    return pooled, total
+
+
 # --------------------------------------------------------------------------
 # 数据装载
 # --------------------------------------------------------------------------
@@ -182,6 +289,30 @@ def load_answer_rows(methods: List[str]) -> List[Dict]:
                 r["_method"] = m
                 rows.append(r)
     return rows
+
+
+ANNOTATIONS_CSV = os.path.join(PROJECT_DIR, "data", "annotations", "finance_annotations.csv")
+
+
+def load_batch_map(path: str = ANNOTATIONS_CSV) -> Dict[str, str]:
+    """读标注集里的 batch 列：{qid: 批次标签}。
+
+    批次标签记录每题的构造方式（v1_人工出题 / v2_块锚定）——两批的答案长度与难度系统性不同，
+    分析时必须分批或把批次作为控制变量，否则会把批次差异读成"长度↔质量"。
+    """
+    out: Dict[str, str] = {}
+    if not os.path.isfile(path):
+        return out
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                qid = (r.get("id") or "").strip()
+                batch = (r.get("batch") or "").strip()
+                if qid and batch:
+                    out[qid] = batch
+    except Exception:
+        return {}
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -427,6 +558,12 @@ def main() -> int:
                                        limit=args.fetch_limit)
 
     embedder = None if args.no_embed else get_embedder()
+    batch_map = load_batch_map()
+    if batch_map:
+        print(f"批次信息：{len(batch_map)} 题带 batch 标签"
+              f"（{'、'.join(sorted(set(batch_map.values())))}）")
+    else:
+        print("  [提示] 标注集没有 batch 列，按单批次分析（建议补列以区分构造方式）")
 
     # ---- 逐行算代理 ----
     table: List[Dict] = []
@@ -449,6 +586,7 @@ def main() -> int:
         parts = [v for v in (corr_n, faith_n, support) if not math.isnan(v)]
         table.append({
             "qid": qid, "method": method,
+            "batch": batch_map.get(qid, ""),   # 批次是"题目"的属性，与分块方法无关
             "judge_corr": float(r.get("judge_corr") or 0),
             "judge_faith": float(r.get("judge_faith") or 0),
             "doc_hit": hit,
@@ -460,39 +598,88 @@ def main() -> int:
         })
 
     # 字段表固定（多分块模式下只有 hmm 行才有检索侧代理，不能从首行推断）
-    base_keys = ["qid", "method", "judge_corr", "judge_faith", "doc_hit", "claim_support",
-                 "evidence_gap", "ans_gold_sim", "quality_composite"]
+    batch_labels = sorted({b for b in (row.get("batch") for row in table) if b})
+    if len(batch_labels) < 2:
+        batch_labels = batch_labels or ["all"]
+    base_keys = ["qid", "method", "batch", "judge_corr", "judge_faith", "doc_hit",
+                 "claim_support", "evidence_gap", "ans_gold_sim", "quality_composite"]
     proxy_names = list(PROXY_DIRECTION)
     truth_names = list(TRUTH_LABEL)
     fieldnames = base_keys + proxy_names
 
-    # ---- 有效性统计 ----
+    # ---- 有效性统计（批次内合并为准，池化值仅作对照）----
     validity: List[Dict] = []
     for truth in truth_names:
         fam_p = []
         fam_rows = []
         for p in proxy_names:
-            pairs = [(row[p], row[truth]) for row in table
-                     if row.get(truth) is not None and not math.isnan(row.get(truth, float("nan")))
-                     and row.get(p) is not None and not math.isnan(row.get(p, float("nan")))]
+            def _pairs(rows_sub):
+                out = []
+                for row in rows_sub:
+                    a, b = row.get(p), row.get(truth)
+                    if a is None or b is None:
+                        continue
+                    if isinstance(a, float) and math.isnan(a):
+                        continue
+                    if isinstance(b, float) and math.isnan(b):
+                        continue
+                    out.append((a, b))
+                return out
+
+            pairs = _pairs(table)
             xs = [a for a, _ in pairs]
             ys = [b for _, b in pairs]
-            rho, pv = spearman(xs, ys)
+            rho_all, p_all = spearman(xs, ys)
             lo, hi = bootstrap_rho_ci(xs, ys) if len(xs) >= 8 else (float("nan"), float("nan"))
-            fam_rows.append({"truth": truth, "proxy": p, "n": len(xs), "rho": rho, "p": pv,
-                             "ci_lo": lo, "ci_hi": hi,
-                             "expect": PROXY_DIRECTION[p],
-                             "sign_ok": (None if math.isnan(rho) or PROXY_DIRECTION[p] == 0
-                                         else (rho > 0) == (PROXY_DIRECTION[p] > 0)),
-                             "mean": float(np.mean(xs)) if xs else float("nan"),
-                             "sd": float(np.std(xs, ddof=1)) if len(xs) > 1 else float("nan"),
-                             "min": float(np.min(xs)) if xs else float("nan"),
-                             "p95": float(np.quantile(xs, 0.95)) if xs else float("nan"),
-                             "max": float(np.max(xs)) if xs else float("nan"),
-                             "n_missing": len(table) - len(xs)})
-            fam_p.append(pv)
+            # 分批次
+            part = {}
+            for b_label in batch_labels:
+                sub = [row for row in table if row.get("batch") == b_label]
+                bxs = [a for a, _ in _pairs(sub)]
+                bys = [b for _, b in _pairs(sub)]
+                b_rho, b_p = spearman(bxs, bys)
+                part[b_label] = {"n": len(bxs), "rho": b_rho, "p": b_p,
+                                 "level": variance_level(bxs)}
+            rho_within, p_within = fisher_pool_test([part[b]["rho"] for b in batch_labels],
+                                                    [part[b]["n"] for b in batch_labels])
+            diff_p = rho_diff_p(part[batch_labels[0]]["rho"], part[batch_labels[0]]["n"],
+                                part[batch_labels[1]]["rho"], part[batch_labels[1]]["n"]) \
+                if len(batch_labels) == 2 else float("nan")
+            # 长度控制 + 批次内残差化后的偏相关（消除"长度混淆"与"批次差异"）
+            prho, pn = partial_rho_rank_from_rows(table, p, truth, "ans_length",
+                                                 batch_key="batch")
+            signs = [part[b]["rho"] for b in batch_labels
+                     if not math.isnan(part[b]["rho"]) and part[b]["n"] >= 8]
+            sign_consistent = bool(signs) and all(
+                (r > 0) == (signs[0] > 0) and abs(r) >= 0.05 for r in signs)
+            has_variance = all(part[b]["level"] != "degenerate" for b in batch_labels) \
+                if batch_labels else True
+            is_rare = any(part[b]["level"] == "rare" for b in batch_labels) \
+                if batch_labels else False
+            fam_rows.append({
+                "truth": truth, "proxy": p, "n": len(xs),
+                "rho": rho_all, "p": p_all, "ci_lo": lo, "ci_hi": hi,
+                "rho_within": rho_within, "p_within": p_within,
+                "batch_diff_p": diff_p,
+                "rho_partial_len": prho, "n_partial": pn,
+                "sign_consistent": sign_consistent, "has_variance": has_variance,
+                "is_rare": is_rare,
+                "expect": PROXY_DIRECTION[p],
+                "sign_ok": (None if math.isnan(rho_within) or PROXY_DIRECTION[p] == 0
+                            else (rho_within > 0) == (PROXY_DIRECTION[p] > 0)),
+                "mean": float(np.mean(xs)) if xs else float("nan"),
+                "sd": float(np.std(xs, ddof=1)) if len(xs) > 1 else float("nan"),
+                "min": float(np.min(xs)) if xs else float("nan"),
+                "p95": float(np.quantile(xs, 0.95)) if xs else float("nan"),
+                "max": float(np.max(xs)) if xs else float("nan"),
+                "n_missing": len(table) - len(xs),
+                **{f"rho_{b}": part[b]["rho"] for b in batch_labels},
+                **{f"n_{b}": part[b]["n"] for b in batch_labels},
+            })
+            fam_p.append(p_within)
         for row, adj in zip(fam_rows, holm(fam_p)):
-            row["p_holm"] = adj
+            row["p_within_holm"] = adj
+            row["p_holm"] = adj          # 兼容旧列名：显著性一律基于批次内合并
             validity.append(row)
 
     # 多种分块各自的 ρ（回答侧代理的稳健性检查）
@@ -531,32 +718,92 @@ def main() -> int:
     n_all = len(table)
     mde = mde_spearman(n_eff)
     mde_all = mde_spearman(n_all)
+    # 判定一律基于"批次内合并"（池化值只作对照，避免把批次差异读成代理-质量关系）
     strong = [r for r in validity
-              if not math.isnan(r["rho"]) and r["p_holm"] < 0.05]
-    strong.sort(key=lambda r: -abs(r["rho"]))
-    top_any = sorted([r for r in validity if not math.isnan(r["rho"])],
-                     key=lambda r: -abs(r["rho"]))[:10]
-    # 指标建议表：每个代理取"最强的那个真值"作为它的有效性证据
+              if not math.isnan(r["rho_within"]) and r["p_within_holm"] < 0.05]
+    strong.sort(key=lambda r: -abs(r["rho_within"]))
+    top_any = sorted([r for r in validity if not math.isnan(r["rho_within"])],
+                     key=lambda r: -abs(r["rho_within"]))[:10]
+
+    def proxy_verdict(r: Dict) -> str:
+        """判定：批次内显著 + 两批同号 + 控制长度后不塌 + 分布非退化。
+
+        注意长度派生指标：它们与真值口径同源（标准答案很短、精确匹配与 judge 都惩罚冗长），
+        用"控制长度"无法自证，因此单列一类，不当作独立代理。
+        """
+        rho_w, p_w = r.get("rho_within", float("nan")), r.get("p_within_holm", float("nan"))
+        prho = r.get("rho_partial_len", float("nan"))
+        if not r.get("has_variance", True):
+            return "⬜ 分布退化（批次内近乎常数，不可用）"
+        if r["proxy"] in LENGTH_DERIVED:
+            return "⚠️ 长度派生指标（与真值口径同源，不可独立使用）"
+        rare_note = "（稀有事件，估计不稳）" if r.get("is_rare") else ""
+        if not math.isnan(p_w) and p_w < 0.05:
+            if not r.get("sign_consistent", False):
+                return "⚠️ 批次内不一致（伪信号）"
+            if math.isnan(prho):
+                return "🟡 控制长度后退化（无法评估长度混淆）" + rare_note
+            if abs(prho) < 0.10:
+                return "⚠️ 控制长度后塌陷（长度混淆）"
+            if math.copysign(1, prho) != math.copysign(1, rho_w):
+                return "⚠️ 控制长度后符号翻转（长度混淆）"
+            if r.get("sign_ok") is False:
+                return "✅ 稳健但方向与直觉相反（按反向解读纳入）" + rare_note
+            return "✅ 建议纳入" + rare_note
+        if not math.isnan(r.get("p_holm", float("nan"))) and r["p_holm"] < 0.05:
+            return "⚠️ 池化显著但批次内不成立（批次伪信号）"
+        if not math.isnan(rho_w) and abs(rho_w) >= mde:
+            return "🟡 效应量够但校正后不显著（扩样本再验）"
+        return "⬜ 证据不足"
+
     best_by_proxy: Dict[str, Dict] = {}
     for r in validity:
-        if math.isnan(r["rho"]):
+        if math.isnan(r.get("rho_within", float("nan"))):
             continue
         cur = best_by_proxy.get(r["proxy"])
-        if cur is None or abs(r["rho"]) > abs(cur["rho"]):
+        if cur is None or abs(r["rho_within"]) > abs(cur["rho_within"]):
             best_by_proxy[r["proxy"]] = r
+
+    # 批次构成（说明为什么必须分批看）
+    batch_profile = []
+    for b in batch_labels:
+        sub = [row for row in table if row.get("batch") == b and row["method"] == args.method]
+        if not sub:
+            continue
+        lens = [row["ans_length"] for row in sub if not math.isnan(row.get("ans_length", float("nan")))]
+        corrs = [row["judge_corr"] for row in sub]
+        batch_profile.append({
+            "batch": b, "n": len(sub),
+            "len_median": float(np.median(lens)) if lens else float("nan"),
+            "corr_mean": float(np.mean(corrs)) if corrs else float("nan"),
+            "ceiling": float(np.mean([c == 5 for c in corrs])) if corrs else float("nan"),
+        })
 
     lines = [
         f"# E0 · 无标注代理指标有效性验证（{tag}）",
         "",
         f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M')}；代理 {len(proxy_names)} 个 × 真值 {len(truth_names)} 个",
-        f"- 样本量：检索侧代理 **n={n_eff}**（{args.method} 分块的 40 题，需证据池）；"
-        f"回答侧代理 **n={n_all}**（{len(methods)} 种分块 × 40 题）",
-        f"- **最小可检测效应：|ρ| ≥ {mde:.2f}（n={n_eff}）／{mde_all:.2f}（n={n_all}）**"
-        f"（α=0.05 双侧）——低于门槛的相关性在本样本上无法确证",
-        f"- 多重检验：同一真值族内 Holm 校正；CI 为 {N_BOOT} 次配对 bootstrap 百分位区间",
+        f"- 样本量：**n={n_eff}**（{args.method} 分块的 {n_eff} 题）"
+        + (f"；回答侧另有 {n_all - n_eff} 行来自其他分块方法" if n_all != n_eff else ""),
+        f"- **判定口径：批次内 Fisher 合并 ρ + 同族 Holm 校正**；"
+        f"池化 ρ 仅作对照（两个标注批次构造不同，池化会引入批次混淆）",
+        f"- **最小可检测效应：|ρ| ≥ {mde:.2f}**（α=0.05 双侧）；"
+        f"CI 为 {N_BOOT} 次配对 bootstrap 百分位区间",
         f"- 检索侧相似度类指标：{'已跳过（--no-embed）' if args.no_embed else '由 BGE 嵌入在线计算'}",
         "",
-        "## 真值分布（先看区分度：真值本身没有区分度，代理再准也测不出相关性）",
+        "## 批次构成（为什么必须分批分析）",
+        "",
+        "| 批次 | 题数 | 答案长度中位数 | judge 正确性均值 | 满分占比 |",
+        "|---|---|---|---|---|",
+    ]
+    for b in batch_profile:
+        lines.append(f"| {b['batch']} | {b['n']} | {b['len_median']:.0f} | "
+                     f"{b['corr_mean']:.2f} | {b['ceiling']:.1%} |")
+    lines += [
+        "",
+        "> 两批次的答案长度与难度系统性不同 ⇒ 直接池化会把**批次差异**读成「长度↔质量」这类伪关系。",
+        "",
+        "## 真值分布（真值本身没有区分度，代理再准也测不出相关性）",
         "",
         "| 真值 | 有效行数 | 不同取值 | 范围 / 均值 |",
         "|---|---|---|---|",
@@ -569,45 +816,51 @@ def main() -> int:
         uniq = sorted({round(v, 3) for v in vals})
         lines.append(f"| {TRUTH_LABEL[t]} | {len(vals)} | {len(uniq)} | "
                      f"{min(vals):.2f}~{max(vals):.2f} / {np.mean(vals):.2f} |")
-    lines += ["", "## 与真实质量最相关的代理（按 |ρ| 排序）", "",
-              "| 代理 | 真值 | ρ | 95% CI | Holm p | 方向符合预期 | n |",
-              "|---|---|---|---|---|---|---|"]
+    lines += ["", "## 批次内一致性（判定依据）", "",
+              "| 代理 | 真值 | 批次内合并 ρ | Holm p | " + " | ".join(batch_labels)
+              + " | 批次差异 p | 池化 ρ（对照） | 控制长度后 ρ |",
+              "|---|---|---|---|" + "---|" * len(batch_labels) + "---|---|---|"]
     for r in top_any:
-        lines.append(f"| {r['proxy']} | {TRUTH_LABEL[r['truth']]} | {r['rho']:+.3f} | "
-                     f"[{r['ci_lo']:+.2f}, {r['ci_hi']:+.2f}] | {r['p_holm']:.3f} | "
-                     f"{'—' if r['sign_ok'] is None else ('✅' if r['sign_ok'] else '❌')} | {r['n']} |")
-
+        per = " | ".join(f"{r.get('rho_' + b, float('nan')):+.2f}" for b in batch_labels)
+        dp = "" if math.isnan(r["batch_diff_p"]) else f"{r['batch_diff_p']:.3f}"
+        pl = "" if math.isnan(r["rho_partial_len"]) else f"{r['rho_partial_len']:+.3f}"
+        lines.append(f"| {r['proxy']} | {TRUTH_LABEL[r['truth']]} | {r['rho_within']:+.3f} | "
+                     f"{r['p_within_holm']:.3f} | {per} | {dp} | {r['rho']:+.3f} | {pl} |")
     lines += ["", "## 指标建议表（进入 e-detector 的候选）", "",
-              "| 代理 | 最强证据（真值 / ρ / Holm p） | 均值 | p95 | 范围 | 判定 |",
-              "|---|---|---|---|---|---|"]
+              "| 代理 | 最强证据（真值 / 批次内 ρ / Holm p） | 控制长度后 | 均值 | p95 | 范围 | 判定 |",
+              "|---|---|---|---|---|---|---|"]
     for p, r in sorted(best_by_proxy.items(),
-                       key=lambda kv: -abs(kv[1]["rho"])):
-        if r["p_holm"] < 0.05 and r["sign_ok"] is not False:
-            verdict = "✅ 建议纳入"
-        elif r["p_holm"] < 0.05 and r["sign_ok"] is False:
-            verdict = "⚠️ 显著但方向相反（需重新理解语义）"
-        elif abs(r["rho"]) >= mde:
-            verdict = "🟡 效应量够但校正后不显著（扩样本再验）"
-        else:
-            verdict = "⬜ 证据不足"
-        lines.append(f"| {p} | {TRUTH_LABEL[r['truth']]} / {r['rho']:+.3f} / {r['p_holm']:.3f} | "
-                     f"{r['mean']:.3f} | {r['p95']:.3f} | {r['min']:.3f}~{r['max']:.3f} | {verdict} |")
-    sig = [r for r in strong if r["sign_ok"] is not False]
+                       key=lambda kv: -abs(kv[1]["rho_within"])):
+        pj = "" if math.isnan(r.get("rho_partial_len", float("nan"))) \
+            else f"{r['rho_partial_len']:+.3f}"
+        lines.append(f"| {p} | {TRUTH_LABEL[r['truth']]} / {r['rho_within']:+.3f} / "
+                     f"{r['p_within_holm']:.3f} | {pj} | "
+                     f"{r['mean']:.3f} | {r['p95']:.3f} | {r['min']:.3f}~{r['max']:.3f} | "
+                     f"{proxy_verdict(r)} |")
+    sig = [r for r in strong if proxy_verdict(r).startswith("✅")]
+    sig_proxies = sorted({r["proxy"] for r in sig})
     lines += ["", "## 结论", ""]
     if sig:
-        lines.append(f"- **通过 Holm 校正且方向符合预期的代理 {len(sig)} 个**："
-                     + "、".join(f"{r['proxy']}（→{TRUTH_LABEL[r['truth']]}，ρ={r['rho']:+.3f}）"
-                                for r in sig[:6]))
+        lines.append(f"- **批次内稳健、且非长度派生的代理×真值对 {len(sig)} 个"
+                     f"（涉及 {len(sig_proxies)} 个代理：{'、'.join(sig_proxies)}）**："
+                     + "、".join(f"{r['proxy']}→{TRUTH_LABEL[r['truth']]}（ρ={r['rho_within']:+.3f}）"
+                                for r in sig[:8]))
+    else:
+        lines.append("- 批次内没有任何代理通过 Holm 校正（且非长度派生/非退化）")
     lines.append(f"- 与「结论证据充分性」显著相关的代理："
                  f"{len([r for r in strong if r['truth'] == 'claim_support']) or '0 个'}"
-                 f"——证据充分性这条真值目前没有被任何无标注代理捕捉到")
-    lines.append(f"- **主要瓶颈是真值的区分度**：judge 分数天花板明显（"
-                 f"{max(1, len([1 for row in table if row['judge_corr'] == 5]))}/{n_all} 行为满分），"
-                 f"证据充分性 96% 挤在 1.0；唯一高区分度真值是答案↔标准答案相似度"
-                 f"（{len({round(row['ans_gold_sim'], 3) for row in table if not math.isnan(row['ans_gold_sim'])})} 个不同取值）")
-    lines.append(f"- 行动建议：① 标注 40 → 120 条（门槛 {mde:.2f} → {mde_spearman(120):.2f}）；"
-                 f"② 线上暴露 reranker 分数（提升 margin 类代理的分辨率）；"
-                 f"③ 后续漂移实验直接以本表「建议纳入」的代理作为检测器输入，其余作为敏感性画像的观察项")
+                 f"（注意该真值只有 {len(audit)} 题，欠功效，不能当定论）")
+    gold_sim_uniq = len({round(row['ans_gold_sim'], 3) for row in table
+                         if not math.isnan(row.get('ans_gold_sim', float('nan')))})
+    lines.append(f"- **真值分辨率仍是瓶颈**：judge 满分占比 "
+                 f"{np.mean([row['judge_corr'] == 5 for row in table]):.1%}；"
+                 + (f"唯一高区分度真值是答案↔标准答案相似度（{gold_sim_uniq} 个不同取值）"
+                    if gold_sim_uniq else "本次未计算答案相似度（--no-embed）"))
+    lines.append("- 行动建议：① 下一批标注**按难度分层**（简单/中等/困难各 1/3），"
+                 "不要只用块锚定生成，以拉开真值区分度；"
+                 "② 线上暴露 reranker 分数（提升 margin 类代理的分辨率）；"
+                 "③ 区分「指标有效性（per-query）」与「窗口级敏感性」——"
+                 "单条相关性弱不等于窗口均值对漂移不敏感，后者才是 e-detector 依赖的性质")
     if per_method:
         lines += ["", "## 多种分块下的稳健性（回答侧代理 → judge 正确性，Fisher-z 合并）", "",
                   "| 代理 | 合并 ρ | 各方法 ρ |", "|---|---|---|"]
@@ -617,11 +870,15 @@ def main() -> int:
                            for m, v in zip(methods, r["per_method"]))
             lines.append(f"| {r['proxy']} | {r['pooled_rho']:+.3f} | {pm} |")
     lines += ["", f"逐查询代理矩阵（e-detector 的输入）：`{os.path.basename(table_path)}`；"
-                  f"完整统计：`{os.path.basename(valid_path)}`。"]
+                  f"完整统计：`{os.path.basename(valid_path)}`。",
+              "",
+              f"> 说明：本报告的所有显著性判定基于**批次内合并**的 ρ（列 `rho_within`）；"
+              f"`rho` 列为池化值，仅用于展示批次混淆的幅度。"]
     open(summary_path, "w", encoding="utf-8").write("\n".join(lines))
 
     print(f"\n代理矩阵：{table_path}\n有效性统计：{valid_path}\n汇总：{summary_path}")
-    print(f"MDE(|ρ|) = {mde:.3f} @ n={n_eff}；显著代理（claim_support 族）= {len(strong)}")
+    print(f"MDE(|ρ|) = {mde:.3f} @ n={n_eff}；批次内稳健代理 = {len(sig)}"
+          f"（池化显著 = {len([r for r in validity if r.get('p_holm', 1) < 0.05])}）")
     return 0
 
 
