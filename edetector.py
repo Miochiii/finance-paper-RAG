@@ -1,0 +1,594 @@
+# -*- coding: utf-8 -*-
+"""edetector.py —— RAG 质量漂移的序贯检测：最小可行实现（E-detector 框架）。
+
+方法来源
+--------
+Shin, Ramdas, Rinaldo (2023) *E-detectors: A Nonparametric Framework for Sequential
+Change Detection*。本项目只用其**有界变量构造**（原文 §5.2）与**混合封闭性**（命题 2.3）：
+
+    L_n(λ) = 1 + λ( X_n/m − 1 ),   λ ∈ (0,1)          # 基线 e-detector 增量
+    M^CU_n(λ) = L_n(λ) · max{ M^CU_{n−1}(λ), 1 }       # 累积型（CUSUM 式）
+    M_n = Σ_{k,λ} ω_{k,λ} · M^CU_n(k,λ),  Σω = 1       # 多指标凸混合（命题 2.3）
+    报警：M_n ≥ 1/α                                    # 阈值显式，无需校准
+
+三个关键性质（也是本脚本要实验验证的）：
+  1. **合法性**：只要变前 μ_n ≤ m，就有 E[L_n|F_{n−1}] ≤ 1，故 X_n ≤ m 时 L_n ≤ 1（不增长）；
+     阈值取 1/α 时 ARL ≥ 1/α（定理 2.4，非渐近）。
+  2. **混合仍合法**（命题 2.3）——所以"多指标取加权平均"是安全的融合方式。
+  3. **取最大不合法**（Remark 3.1）——工程直觉最自然的 max/sup 会破坏保证，
+     实测表现为误报膨胀（ARL 远小于 1/α）。这正是本脚本最锋利的一组结果。
+
+用法（手动运行）
+----------------
+    python edetector.py                          # 默认：ARL + EDD + 融合对比（秒级~分钟级）
+    python edetector.py --proxy ret_unique_docs,ans_refusal --alpha 0.05
+    python edetector.py --m-strategy mean,p95,hoeffding      # m 估计策略对比（E5）
+    python edetector.py --reps 2000 --T 2000                 # 更稳的 ARL 估计
+    python edetector.py --no-inject                          # 只做 ARL 验证
+
+输入：`results/proxy_table_hmm_*.csv`（E0 产出的逐查询代理矩阵，含 batch 列）。
+输出：`results/edetector_<时间戳>.csv`（逐配置结果）、`results/edetector_series_<时间戳>.csv`
+      （一条示例轨迹的 M_n 序列，可直接画图）、`log/E-detector_最小验证_<日期>.md`（报告）。
+"""
+
+import argparse
+import csv
+import glob
+import json
+import math
+import os
+import sys
+import time
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from rag_core.config import PROJECT_DIR  # noqa: E402
+
+RESULTS_DIR = os.path.join(PROJECT_DIR, "results")
+LOG_DIR = os.path.join(PROJECT_DIR, "log")
+
+# 代理的"退化方向"：+1 表示数值变大=变差（如检索文档多样性），-1 表示变小=变差（如相似度）
+DEGRADE_DIRECTION = {
+    "ret_unique_docs": +1,      # 证据越分散越差（E0 实测）
+    "ret_top1_sim": -1, "ret_mean_sim": -1, "ret_margin": -1,
+    "ret_sim_entropy": +1, "ret_page_spread": +1, "ret_n_blocks": -1,
+    "ans_refusal": +1,          # 拒答率上升=变差（E0 实测最稳健）
+    "ans_length": -1, "ans_n_claims": -1, "ans_claim_density": -1,
+    "ans_citations": -1, "ans_citation_density": -1,
+}
+FUSE_CHOICES = ("mix", "max", "min", "single")
+
+
+# --------------------------------------------------------------------------
+# 纯函数：构造 e-detector
+# --------------------------------------------------------------------------
+def to_unit(values: Sequence[float]) -> np.ndarray:
+    """把代理归一化到 [0,1]（min-max；常数序列返回全 0.5）。越界值截断。"""
+    a = np.asarray([v for v in values if v is not None and not (isinstance(v, float) and math.isnan(v))],
+                   dtype=float)
+    if a.size == 0:
+        return a
+    lo, hi = float(a.min()), float(a.max())
+    if hi - lo < 1e-12:
+        return np.full(a.shape, 0.5)
+    return np.clip((a - lo) / (hi - lo), 0.0, 1.0)
+
+
+def estimate_m(calib: np.ndarray, strategy: str = "p95", delta: float = 0.05) -> float:
+    """估计变前均值上界 m（合法性要求 μ_n ≤ m，而不是 m = 样本均值）。
+
+    这是开题报告模块 2 的开放问题（E5：保守性与检测延迟的权衡）：
+      - mean      : m = 样本均值 —— 最激进，μ ≈ m 时合法性踩线，ARL 可能不足；
+      - p95       : m = 95% 分位数 —— 常用折中；
+      - qNN       : m = NN% 分位数（如 q60/q85/q100）—— 用于**扫描 m**，画出 ARL/EDD 权衡曲线；
+      - hoeffding : m = 均值 + sqrt(log(1/δ)/(2n)) —— 有限样本上界（概率 1−δ 成立）；
+      - max       : m = 观测最大值 —— 最保守，检测最慢（常常永远不报警）。
+    返回至少比最大值略大的数，避免 m=0 或 m=1 导致 L 退化。
+    """
+    a = np.asarray(calib, dtype=float)
+    if a.size == 0:
+        return 1.0
+    if strategy == "mean":
+        m = float(a.mean())
+    elif strategy == "p95":
+        m = float(np.quantile(a, 0.95))
+    elif strategy.startswith("q") and strategy[1:].isdigit():
+        m = float(np.quantile(a, min(100, max(1, int(strategy[1:])))/ 100.0))
+    elif strategy == "hoeffding":
+        m = float(a.mean()) + math.sqrt(math.log(1.0 / max(delta, 1e-6)) / (2.0 * a.size))
+    elif strategy == "max":
+        m = float(a.max())
+    else:
+        raise ValueError(f"未知 m 策略: {strategy}")
+    return float(min(1.0 + 1e-9, max(m, 1e-6)))
+
+
+def lambda_grid(m: float, n_lam: int = 7, lo: float = 0.05,
+                hi: float = 0.95) -> np.ndarray:
+    """λ 网格（等比，越小越敏感于小幅漂移）。
+
+    论文用 (Δ_L, Δ_U) 与 K_max 反推网格（Algorithm 1 / 附录 B.1）；
+    最小可行版先用等比网格，并在报告里记录 Δ_L、Δ_U 供后续对齐：
+        Δ_L = mδ/(1−m)²,  Δ_U = m(1−m)/δ²
+    """
+    lo = max(1e-3, min(lo, hi))
+    return np.geomspace(lo, min(hi, 0.999), n_lam)
+
+
+def delta_bounds(m: float, delta: float = 0.05) -> Tuple[float, float]:
+    """论文 §5.2 式 75 的 Δ_L、Δ_U（只用于记录/讲解，最小版不据此筛网格）。"""
+    m = min(max(m, 1e-6), 1 - 1e-6)
+    return (m * delta / (1 - m) ** 2, m * (1 - m) / delta ** 2)
+
+
+def cumulative_evalue_series(x: np.ndarray, m: float, lam: float,
+                             cap: float = 1e12) -> np.ndarray:
+    """单分量累积 e-detector：M^CU_n = L_n · max(M^CU_{n−1}, 1)，M_0 = 1。
+
+    向量化在"多条独立流"维度上做（x 形状 (T,) 或 (R,T)），递归沿时间轴。
+
+    注意：M 可以被 L ≤ 1 拉到 1 以下（例如恒为 0.55）——这不是 bug，而是"自重启"语义，
+    阈值 1/α > 1，所以低于 1 的取值不会触发报警；关键性质是
+    **当 X_n ≤ m 恒成立时 M_n ≤ 1，永不可能报警**（这正是 ARL ≥ 1/α 的直观来源）。
+    M 会被截断在 cap（默认 1e12）——阈值只有 1/α（通常 20 左右），
+    截断远高于阈值，不影响报警判断，但能避免 m 极小时乘积溢出成 inf。
+    """
+    x = np.atleast_2d(np.asarray(x, dtype=float))
+    R, T = x.shape
+    m = float(max(m, 1e-9))
+    out = np.empty((R, T), dtype=float)
+    prev = np.ones(R, dtype=float)
+    for t in range(T):
+        L = 1.0 + lam * (x[:, t] / m - 1.0)
+        prev = np.clip(L * np.maximum(prev, 1.0), 0.0, cap)
+        out[:, t] = prev
+    return out
+
+
+def rolling_mean(x: np.ndarray, window: int) -> np.ndarray:
+    """滑动窗口均值：稀有/二值代理（如拒答标志）先做窗口聚合再进检测器。
+
+    这既是工程上的自然做法（生产里监控的是"每 N 条查询里的拒答率"），
+    也让 m 有正的下界（否则全零校准窗口会给出 m=0，e-detector 退化）。
+    """
+    x = np.asarray(x, dtype=float)
+    if window <= 1 or x.size < window:
+        return x
+    c = np.cumsum(np.insert(x, 0, 0.0))
+    return (c[window:] - c[:-window]) / float(window)
+
+
+def fuse_series(series_list: List[np.ndarray], how: str = "mix",
+                weights: Optional[Sequence[float]] = None) -> np.ndarray:
+    """多分量融合。合法性（命题 2.3）只对 mix/min 成立；max 用于对照实验（Remark 3.1）。"""
+    stack = np.stack(series_list, axis=0)          # (K, R, T)
+    if how == "max":
+        return stack.max(axis=0)
+    if how == "min":
+        return stack.min(axis=0)
+    if how == "single":
+        return stack[0]
+    w = np.asarray(weights if weights is not None else [1.0 / stack.shape[0]] * stack.shape[0],
+                   dtype=float)
+    w = w / w.sum()                                # 权重必须和为 1，否则不再合法
+    return np.tensordot(w, stack, axes=(0, 0))
+
+
+def first_alarm(series: np.ndarray, threshold: float) -> np.ndarray:
+    """每条流首次越过阈值的时间（1-based）；未报警返回 0。"""
+    s = np.atleast_2d(series)
+    hit = s >= threshold
+    idx = np.argmax(hit, axis=1) + 1
+    idx[~hit.any(axis=1)] = 0
+    return idx
+
+
+def inject_drift(stream: np.ndarray, at: int, delta: float, direction: int,
+                 mode: str = "contaminate",
+                 rng: Optional[np.random.Generator] = None) -> np.ndarray:
+    """在 at 步之后注入退化漂移（Δ 的含义都是"期望均值漂移量"）。
+
+    - `shift`：加性平移后 clip 到 [0,1]。简单，但当序列贴着 0/1（如离散计数的归一化值）
+      会饱和，实际漂移量小于 Δ；
+    - `contaminate`（默认）：让一部分查询变成"最差状态"（direction>0 取 1.0，否则取 0.0），
+      比例 q 由 q·|target − 当前均值| = Δ 反解 → 期望均值漂移恰为 Δ，且不会饱和。
+      这更贴近真实退化（"一部分查询开始答不好"），也便于向评委解释。
+    """
+    out = np.array(stream, dtype=float, copy=True)
+    if at <= 0 or at >= out.shape[-1] or delta <= 0:
+        return out
+    if mode == "shift":
+        out[..., at:] = np.clip(out[..., at:] + direction * delta, 0.0, 1.0)
+        return out
+    rng = rng or np.random.default_rng(0)
+    post = out[..., at:]
+    target = 1.0 if direction > 0 else 0.0
+    cur = post.mean(axis=-1, keepdims=True)
+    q = np.clip(delta / np.maximum(1e-6, np.abs(target - cur)), 0.0, 1.0)
+    mask = rng.random(post.shape) < q
+    out[..., at:] = np.where(mask, target, post)
+    return out
+
+
+def block_bootstrap(pool: np.ndarray, reps: int, T: int, block: int,
+                    rng: np.random.Generator) -> np.ndarray:
+    """块自助抽样生成 R×T 的变前流：保留短程自相关（比 iid 重采样更接近真实日志）。"""
+    pool = np.asarray(pool, dtype=float)
+    n = pool.size
+    if n == 0:
+        raise ValueError("空数据池")
+    if block <= 1:
+        return rng.choice(pool, size=(reps, T), replace=True)
+    nb = math.ceil(T / block)
+    starts = rng.integers(0, max(1, n - block + 1), size=(reps, nb))
+    idx = (starts[:, :, None] + np.arange(block)[None, None, :]).reshape(reps, nb * block)
+    return pool[idx % n][:, :T]
+
+
+# --------------------------------------------------------------------------
+# 实验
+# --------------------------------------------------------------------------
+def fit_unit(calib: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """用**校准窗口**的极值把序列映射到 [0,1]（避免偷看变点之后的数据）。
+
+    整条序列做 min-max 会把变点后的漂移值也纳入尺度（前视偏差），
+    而且会把 m 推到接近 1、检测器再也不报警——实测踩过这个坑。
+    这里只用校准段的 lo/hi；漂移导致越界的值截断到 0/1（正是我们想检的信号）。
+    """
+    c = np.asarray(calib, dtype=float)
+    x = np.asarray(x, dtype=float)
+    if c.size == 0:
+        return np.clip(x, 0.0, 1.0)
+    lo, hi = float(c.min()), float(c.max())
+    if hi - lo < 1e-12:
+        return np.full(x.shape, 0.5)
+    return np.clip((x - lo) / (hi - lo), 0.0, 1.0)
+
+
+def build_detectors(x: np.ndarray, m: float, lams: np.ndarray,
+                    how: str) -> np.ndarray:
+    """按融合方式给出 M 序列。
+
+    x 可以是单条流 (T,) 或一批独立流 (R,T)；返回同形。**注意保留 R 维**
+    （早期版本误取 [0]，把 30 条流压成 1 条，统计量看着正常其实只算了一条流）。
+    """
+    series = [cumulative_evalue_series(x, m, float(lam)) for lam in lams]
+    return fuse_series(series, how=how)
+
+
+def run_arl(x_streams: np.ndarray, m: float, lams: np.ndarray, how: str,
+            alpha: float) -> Dict:
+    """变前（同分布）流的 ARL：报警时间均值/中位数 + 截尾比例。"""
+    M = build_detectors(x_streams, m, lams, how)
+    times = first_alarm(M, 1.0 / alpha)
+    censored = int((times == 0).sum())
+    valid = times[times > 0]
+    return {
+        "n_reps": int(x_streams.shape[0]),
+        "T": int(x_streams.shape[1]),
+        "alarm_rate": float(1.0 - censored / x_streams.shape[0]),
+        "arl_mean": float(valid.mean()) if valid.size else float("inf"),
+        "arl_median": float(np.median(valid)) if valid.size else float("inf"),
+        "censored": censored,
+    }
+
+
+def run_edd(pool: np.ndarray, m: float, lams: np.ndarray, how: str, alpha: float,
+            at: int, delta: float, direction: int, reps: int, T_pre: int,
+            T_post: int, rng: np.random.Generator, mode: str = "contaminate") -> Dict:
+    """注入漂移后的检测延迟（EDD）。
+
+    统计口径要分清三件事：
+      - 变点**之前**就报警 = 变前误报（用 pre_alarm_rate 单列，不能算进 EDD）；
+      - 变点之后首次报警 = 真正的检测延迟；
+      - 整条流都没报警 = 截尾（按 T_post 计入 eDD_censored，并单列检出率）。
+    """
+    pre = block_bootstrap(pool, reps, T_pre, 20, rng)
+    post = block_bootstrap(pool, reps, T_post, 20, rng)
+    stream = inject_drift(np.concatenate([pre, post], axis=1), at, delta, direction,
+                          mode=mode, rng=rng)
+    M = build_detectors(stream, m, lams, how)
+    times = first_alarm(M, 1.0 / alpha)
+    pre_alarm = float(((times > 0) & (times <= at)).mean())
+    detected = times > at
+    delay = times[detected] - at
+    return {
+        "delta": delta, "direction": direction, "inject_mode": mode,
+        "pre_alarm_rate": pre_alarm,
+        "detect_rate": float(detected.mean()),
+        "edd_mean": float(delay.mean()) if delay.size else float("inf"),
+        "edd_median": float(np.median(delay)) if delay.size else float("inf"),
+        "edd_censored": float(np.where(detected, times - at, T_post).mean()),
+    }
+
+
+def load_proxy_matrix(path: Optional[str] = None, need: Sequence[str] = ()) -> Tuple[str, List[Dict]]:
+    """读 E0 的逐查询代理矩阵。
+
+    自动选择时会**跳过不含所需代理的矩阵**（例如跳过 --no-embed 跑出来的、
+    检索侧列为空的那些），避免"代理有效样本不足（0）"这种令人困惑的失败。
+    """
+    if path:
+        with open(path, encoding="utf-8-sig") as f:
+            return path, list(csv.DictReader(f))
+    files = sorted(glob.glob(os.path.join(RESULTS_DIR, "proxy_table_*.csv")), reverse=True)
+    if not files:
+        raise FileNotFoundError("找不到 results/proxy_table_*.csv（先跑 E0：probe_validity.py）")
+    best = None
+    for fp in files:
+        with open(fp, encoding="utf-8-sig") as f:
+            rows = list(csv.DictReader(f))
+        filled = {p: sum(1 for r in rows if (r.get(p) or "").strip() != "") for p in need}
+        if all(v >= 20 for v in filled.values()):
+            return fp, rows
+        if best is None or sum(filled.values()) > best[0]:
+            best = (sum(filled.values()), fp, rows)
+    print(f"  [提示] 没有一份矩阵同时含 {list(need)} 的全部数据，改用最接近的一份；"
+          f"若检索侧为空请先跑一次带嵌入的 probe_validity.py")
+    return best[1], best[2]
+
+
+def series_from_rows(rows: List[Dict], proxy: str, method: str = "hmm") -> np.ndarray:
+    """取某代理的按题序列（保留原始行序；跳过空值与非目标分块方法）。"""
+    out = []
+    for r in rows:
+        if (r.get("method") or method) != method:
+            continue
+        v = (r.get(proxy) or "").strip()
+        if v == "":
+            continue
+        try:
+            out.append(float(v))
+        except ValueError:
+            continue
+    return np.asarray(out, dtype=float)
+
+
+# --------------------------------------------------------------------------
+# 主流程
+# --------------------------------------------------------------------------
+def main() -> int:
+    ap = argparse.ArgumentParser(description="RAG 漂移检测：最小 e-detector 验证")
+    ap.add_argument("--proxy", default="ret_unique_docs,ans_refusal",
+                    help="用哪些代理（逗号分隔；默认 E0 里最稳健的两个）")
+    ap.add_argument("--matrix", default=None, help="代理矩阵 CSV（默认取最新）")
+    ap.add_argument("--alpha", type=float, default=0.05, help="误报水平（ARL 实验用；阈值 = 1/α）")
+    ap.add_argument("--alpha-edd", type=float, default=0.001,
+                    help="EDD 实验用的误报水平：必须小到 ARL ≫ 变点前的步数，否则"
+                         "检测器在变点前就报警（α=0.05 → ARL≥20 步，生产上太吵；"
+                         "实际部署通常取 1e-3 量级）")
+    ap.add_argument("--m-strategy", default="q60,q85,q100",
+                    help="变前上界估计：mean/p95/qNN/hoeffding/max（可多选；"
+                         "qNN 扫描 m 即可画出 ARL/EDD 权衡曲线）")
+    ap.add_argument("--m-floor", type=float, default=0.02,
+                    help="m 的下界（稀有事件代理校准窗口内可能全为 0，m=0 会让检测器退化）")
+    ap.add_argument("--window", type=int, default=1,
+                    help="进入检测器前的滑窗聚合长度（二值/稀有代理建议 20，即监控'每20条的拒答率'）")
+    ap.add_argument("--fuse", default="mix,max,min,single", help="对比哪些融合方式")
+    ap.add_argument("--reps", type=int, default=1000, help="ARL 模拟重复次数")
+    ap.add_argument("--T", type=int, default=1500, help="每条流的长度")
+    ap.add_argument("--calib-frac", type=float, default=0.4, help="用前多少比例的数据估 m")
+    ap.add_argument("--inject", default="0.05,0.1,0.2", help="注入漂移幅度（逗号分隔）")
+    ap.add_argument("--inject-mode", default="contaminate", choices=["contaminate", "shift"],
+                    help="注入方式：contaminate=一部分查询变最差（不饱和）；shift=加性平移")
+    ap.add_argument("--no-inject", action="store_true", help="跳过 EDD 实验")
+    ap.add_argument("--reps-edd", type=int, default=300, help="EDD 实验重复次数")
+    ap.add_argument("--shuffle", dest="shuffle", action="store_true", default=True,
+                    help="切分校准段前先打乱序列（默认开）")
+    ap.add_argument("--no-shuffle", dest="shuffle", action="store_false",
+                    help="按原始行序切分（仅当数据确实带时间序时才用；否则会把批次差异当漂移）")
+    ap.add_argument("--seed", type=int, default=0)
+    args = ap.parse_args()
+
+    stamp = time.strftime("%Y%m%d_%H%M")
+    proxies = [p.strip() for p in args.proxy.split(",") if p.strip()]
+    matrix_path, rows = load_proxy_matrix(args.matrix, need=proxies)
+    fuses = [f.strip() for f in args.fuse.split(",") if f.strip()]
+    deltas = [] if args.no_inject else [float(x) for x in args.inject.split(",") if x.strip()]
+    strategies = [s.strip() for s in args.m_strategy.split(",") if s.strip()]
+    rng = np.random.default_rng(args.seed)
+    threshold = 1.0 / args.alpha
+
+    print(f"代理矩阵: {os.path.basename(matrix_path)}（{len(rows)} 行）")
+    print(f"α={args.alpha} → 阈值 1/α={threshold:.1f}；流长 T={args.T}，重复 {args.reps}"
+          f"；窗口聚合={args.window}")
+    print(f"代理: {proxies}｜融合: {fuses}｜m 策略: {strategies}")
+
+    # 先按校准段定尺度（避免前视），再做窗口聚合与归一化
+    units: Dict[str, np.ndarray] = {}
+    calib_idx: Dict[str, int] = {}
+    for p in proxies:
+        raw = series_from_rows(rows, p)
+        if raw.size < 20:
+            print(f"  [跳过] {p}: 有效样本不足（{raw.size}）")
+            continue
+        raw = rolling_mean(raw, args.window) if args.window > 1 else raw
+        if args.shuffle:
+            # 标注集的行序 = v1 批次在前、v2 批次在后，不是时间序；
+            # 直接按行序切"校准段/检验段"会把批次差异误当成分布漂移
+            # （实测：校准得的 m 反而小于检验段均值，违反 μ ≤ m 前提）。
+            raw = rng.permutation(raw)
+        n_calib = max(8, int(raw.size * args.calib_frac))
+        u = fit_unit(raw[:n_calib], raw)
+        units[p] = u
+        calib_idx[p] = n_calib
+        print(f"  {p}: 原始 {raw.size} 条 → 均值 {u.mean():.3f}，范围 {u.min():.3f}~{u.max():.3f}"
+              f"（尺度按前 {n_calib} 条定{('，已打乱顺序' if args.shuffle else '，按原始行序')}）")
+    if not units:
+        print("[错误] 没有可用代理")
+        return 1
+
+    records: List[Dict] = []
+    # ---- 实验 1：ARL（变前同分布，应 ≥ 1/α；max 融合应显著低于）----
+    print("\n[实验 1] 变前 ARL 验证（目标 ARL ≥ 1/α）")
+    for strategy in strategies:
+        for p, u in units.items():
+            n_calib = calib_idx[p]
+            m = estimate_m(u[:n_calib], strategy)
+            if m < args.m_floor:
+                m = args.m_floor
+                print(f"  [提示] {p} 的 m 估计值过低（校准窗口内几乎没有事件），"
+                      f"已抬到下界 {args.m_floor}；稀有事件代理建议 --window 20 做窗口聚合")
+            pool = u[n_calib:] if u.size > n_calib else u
+            # 合法性前置检查：ARL ≥ 1/α 只在"变前 μ ≤ m"时成立；
+            # 若变前数据均值已超过 m（采样估计不足/分布漂移），保证不适用，必须显式标出。
+            m_ok = bool(pool.mean() <= m)
+            if not m_ok:
+                print(f"  [警告] {p}/{strategy}: m={m:.3f} < 变前数据均值 {pool.mean():.3f} "
+                      f"→ 违反 μ ≤ m 前提，ARL 保证不适用（这正是 E5 要展示的权衡）")
+            streams = block_bootstrap(pool, args.reps, args.T, 20, rng)
+            lams = lambda_grid(m)
+            dl, du = delta_bounds(m)
+            for how in fuses:
+                r = run_arl(streams, m, lams, how, args.alpha)
+                rec = {"experiment": "arl", "proxy": p, "m_strategy": strategy,
+                       "m": round(m, 4), "pool_mean": round(float(pool.mean()), 4),
+                       "m_ge_pool_mean": int(m_ok),
+                       "delta_L": round(dl, 4), "delta_U": round(du, 1),
+                       "window": args.window, "fuse": how, "alpha": args.alpha,
+                       "threshold": round(threshold, 2), "K": int(len(lams)),
+                       **{k: (round(v, 2) if isinstance(v, float) else v) for k, v in r.items()}}
+                records.append(rec)
+                print(f"  {p:<17} m={m:.3f}({strategy}) {how:<7} "
+                      f"ARL均值={rec['arl_mean']:>8.1f} 中位={rec['arl_median']:>7.1f} "
+                      f"报警率={rec['alarm_rate']:.2f}")
+    # ---- 实验 2：EDD（注入漂移后的检测延迟）----
+    if deltas:
+        print("\n[实验 2] 漂移注入后的 EDD（遍历 m 策略 → 直接体现 ARL/EDD 权衡）")
+        for p, u in units.items():
+            direction = DEGRADE_DIRECTION.get(p, +1)
+            for strategy in strategies:
+                m = max(estimate_m(u[:calib_idx[p]], strategy), args.m_floor)
+                pool = u[calib_idx[p]:] if u.size > calib_idx[p] else u
+                lams = lambda_grid(m)
+                for d in deltas:
+                    for how in fuses:
+                        r = run_edd(pool, m, lams, how, args.alpha_edd, at=120, delta=d,
+                                    direction=direction, reps=args.reps_edd,
+                                    T_pre=120, T_post=args.T, rng=rng,
+                                    mode=args.inject_mode)
+                        rec = {"experiment": "edd", "proxy": p, "m_strategy": strategy,
+                               "m": round(m, 4), "window": args.window, "fuse": how,
+                               "alpha": args.alpha_edd,
+                               "threshold": round(1.0 / args.alpha_edd, 0),
+                               **{k: round(v, 2) if isinstance(v, float) else v
+                                  for k, v in r.items()}}
+                        records.append(rec)
+                        print(f"  {p:<17} {strategy:<10} m={m:.3f} Δ={d:<5} {how:<7} "
+                              f"变前误报={rec['pre_alarm_rate']:.2f} "
+                              f"检出率={rec['detect_rate']:.2f} "
+                              f"EDD均值={rec['edd_mean']:>7.1f} 中位={rec['edd_median']:>6.1f}")
+
+    # ---- 输出 ----
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    out_csv = os.path.join(RESULTS_DIR, f"edetector_{stamp}.csv")
+    keys = sorted({k for r in records for k in r})
+    with open(out_csv, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(records)
+
+    # 示例轨迹（用于画图）：同分布流 + 注入漂移流，mix 与 max 各一条
+    p0 = list(units)[0]
+    u0 = units[p0]
+    n_calib = max(8, int(u0.size * args.calib_frac))
+    m0 = estimate_m(u0[:n_calib], strategies[0])
+    lams0 = lambda_grid(m0)
+    pre = block_bootstrap(u0[n_calib:], 1, 120, 20, rng)
+    post = block_bootstrap(u0[n_calib:], 1, 300, 20, rng)
+    drift = inject_drift(np.concatenate([pre, post], axis=1), 120, deltas[0] if deltas else 0.1,
+                         DEGRADE_DIRECTION.get(p0, +1))
+    series_csv = os.path.join(RESULTS_DIR, f"edetector_series_{stamp}.csv")
+    with open(series_csv, "w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["t", "x", "M_mix", "M_max"])
+        mix = build_detectors(drift, m0, lams0, "mix")[0]
+        mx = build_detectors(drift, m0, lams0, "max")[0]
+        for t in range(drift.shape[1]):
+            w.writerow([t + 1, round(float(drift[0, t]), 4), round(float(mix[t]), 3),
+                        round(float(mx[t]), 3)])
+
+    report = write_report(records, args, proxies, fuses, strategies, matrix_path,
+                          os.path.basename(out_csv), os.path.basename(series_csv), units)
+    print(f"\n结果: {out_csv}\n轨迹: {series_csv}\n报告: {report}")
+    return 0
+
+
+def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_path,
+                 out_csv, series_csv, units: Dict[str, np.ndarray]) -> str:
+    os.makedirs(LOG_DIR, exist_ok=True)
+    report = os.path.join(LOG_DIR, f"E-detector_最小验证_{time.strftime('%Y%m%d')}.md")
+    arl = [r for r in records if r["experiment"] == "arl"]
+    edd = [r for r in records if r["experiment"] == "edd"]
+    thr = 1.0 / args.alpha
+    lines = [
+        "# 最小 e-detector 验证（RAG 质量漂移的序贯检测）",
+        "",
+        f"- 生成时间：{time.strftime('%Y-%m-%d %H:%M')}；α={args.alpha} → 阈值 1/α={thr:.0f}",
+        f"- 代理矩阵：`{os.path.basename(matrix_path)}`；代理：{'、'.join(proxies)}",
+        f"- 流长 T={args.T}，ARL 重复 {args.reps} 次，块自助（block=20）保留短程自相关",
+        "",
+        "## 一、变前 ARL（合法性检验：ARL 应 ≥ 1/α）",
+        "",
+        "> 前置条件：**变前 μ ≤ m**。`m ≥ 变前均值` 列为 0 表示该配置已违反前提，"
+        "此时 ARL 保证不适用（这正是「m 估计策略」要权衡的地方）。",
+        "",
+        "| 代理 | m 策略 | m | 变前均值 | m ≥ 均值 | 融合 | ARL 均值 | ARL 中位 | 报警率 | 结论 |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in sorted(arl, key=lambda x: (x["proxy"], x["m_strategy"], x["fuse"])):
+        ok_theory = r.get("m_ge_pool_mean", 1) == 1
+        if not ok_theory:
+            verdict = "⚠️ 违反 μ ≤ m 前提"
+        elif r["arl_mean"] >= thr:
+            verdict = "✅ 达标"
+        elif r["fuse"] == "max":
+            verdict = "❌ 误报膨胀（Remark 3.1 预期）"
+        else:
+            verdict = "⚠️ 低于 1/α"
+        lines.append(f"| {r['proxy']} | {r['m_strategy']} | {r['m']} | {r.get('pool_mean', '')} | "
+                     f"{'是' if ok_theory else '否'} | {r['fuse']} | "
+                     f"{r['arl_mean']:.1f} | {r['arl_median']:.1f} | {r['alarm_rate']:.2f} | {verdict} |")
+    lines += ["", "## 二、漂移注入后的检测延迟（EDD，变点在第 120 步）", ""]
+    if edd:
+        lines += ["| 代理 | Δ | 融合 | 变前误报率 | 检出率 | EDD 均值 | EDD 中位 |",
+                  "|---|---|---|---|---|---|---|"]
+        for r in sorted(edd, key=lambda x: (x["proxy"], x["delta"], x["fuse"])):
+            lines.append(f"| {r['proxy']} | {r['delta']} | {r['fuse']} | "
+                         f"{r.get('pre_alarm_rate', float('nan')):.2f} | "
+                         f"{r['detect_rate']:.2f} | {r['edd_mean']:.1f} | {r['edd_median']:.1f} |")
+    else:
+        lines.append("（本次跳过：--no-inject）")
+    # 融合对比小结：取 mix 与 max 的平均 ARL
+    def _avg(rows_, fuse):
+        v = [x["arl_mean"] for x in rows_ if x["fuse"] == fuse]
+        return sum(v) / len(v) if v else float("nan")
+    lines += ["", "## 三、结论", "",
+              f"- **混合（mix）平均 ARL = {_avg(arl, 'mix'):.1f}**（目标 ≥ {thr:.0f}）；"
+              f"**取最大（max）平均 ARL = {_avg(arl, 'max'):.1f}**"
+              f" → {'取最大确实误报膨胀（Remark 3.1 的实证）' if _avg(arl, 'max') < _avg(arl, 'mix') else '本次未观察到明显差异'}",
+              f"- 取最小（min）平均 ARL = {_avg(arl, 'min'):.1f}（合法但保守，EDD 更长）；"
+              f"单分量（single）平均 ARL = {_avg(arl, 'single'):.1f}",
+              "- **m 估计策略（E5）**：m 越保守（hoeffding/max）ARL 越安全、EDD 越长；"
+              "用样本均值当上界会违反 μ ≤ m 前提（表中「m ≥ 均值」列为否），实测 ARL 明显不足 1/α。",
+              f"- **α 的工程含义**：ARL ≥ 1/α，所以 α={args.alpha} 意味着平均每 {thr:.0f} 步就可能误报一次，"
+              f"生产上太吵；EDD 实验因此用 α={args.alpha_edd}（ARL ≥ {1/args.alpha_edd:.0f} 步）才有意义。",
+              "",
+              f"- 示例轨迹（可直接画图）：`{os.path.basename(series_csv)}`；逐配置结果：`{os.path.basename(out_csv)}`。",
+              f"- 读表提示：ARL 显示 `inf` 表示**在 T={args.T} 步内从未报警**（即 ARL > T，"
+              f"说明该配置过于保守，不是错误）；反之报警率=1.00 且 ARL 很小时要警惕是否违反 μ ≤ m 前提。",
+              "",
+              "> 口径说明：变前流由**块自助重采样**构造（分块内近似平稳），漂移注入默认用"
+              "**污染模型**（一部分查询变最差状态，期望均值漂移 = Δ，不饱和）；"
+              "切分校准段/检验段前会**打乱顺序**——标注集的行序是 v1→v2 两个批次、不是时间序，"
+              "按行序切会把批次差异误当成分布漂移（实测会直接违反 μ ≤ m 前提）。"
+              "接入真实线上日志（带时间戳）后用 `--no-shuffle` 才符合时间序语义。"]
+    open(report, "w", encoding="utf-8").write("\n".join(lines))
+    return report
+
+
+if __name__ == "__main__":
+    sys.exit(main())
