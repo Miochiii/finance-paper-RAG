@@ -116,6 +116,30 @@ class TestEstimateM:
         assert m_hoef >= m_mean                    # 上界必须不小于均值
         assert m_max <= 1.0 + 1e-9
 
+    def test_binom_bound_is_tighter_than_hoeffding_for_rare_events(self):
+        """稀有事件（58 次里 1 次）用精确二项上界应显著紧于 Hoeffding 上界。"""
+        calib = np.zeros(58)
+        calib[0] = 1.0
+        m_binom = ed.estimate_m(calib, "binom")
+        m_hoef = ed.estimate_m(calib, "hoeffding")
+        assert calib.mean() <= m_binom <= m_hoef <= 1.0
+        assert m_binom < 0.15          # Clopper-Pearson 上界约 0.09
+
+    def test_binom_bound_is_at_least_empirical_rate(self):
+        rng = np.random.default_rng(11)
+        calib = (rng.random(200) < 0.3).astype(float)
+        m = ed.estimate_m(calib, "binom")
+        assert m >= calib.mean() - 1e-9 and m <= 1.0
+
+    def test_quantile_strategies_collapse_on_binary_data(self):
+        """记录一个反直觉事实：二元数据上分位数策略会退化成 1.0（m=1 ⇒ 永不报警）。
+
+        所以 --binarize 的默认 m 策略是 binom/hoeffding，而不是 q60/q85/q100。
+        """
+        calib = (np.arange(60) % 3 != 0).astype(float)      # 正例率约 2/3
+        assert ed.estimate_m(calib, "q60") == pytest.approx(1.0)
+        assert ed.estimate_m(calib, "binom") < 1.0
+
     def test_empty_calibration(self):
         assert ed.estimate_m(np.array([]), "p95") == 1.0
 
