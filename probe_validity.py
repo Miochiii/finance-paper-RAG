@@ -52,12 +52,19 @@ CITE_RE = re.compile(r"[\[（(]?\s*来源\s*(\d+)\s*[\]）)]?")
 REFUSAL_RE = re.compile(r"(未找到|无法(确定|回答|判断)|未(提供|明确|提及)|没有(提供|明确)|信息不足|不足以回答)")
 N_BOOT = 10000
 
-# 代理指标的"预期方向"：+1 表示质量越好该值越大（漂移时下降），-1 表示反向
+# 代理指标的"预期方向"：+1 表示质量越好该值越大（漂移时下降），-1 表示反向，0 = 方向不明
 PROXY_DIRECTION = {
     "ret_top1_sim": +1, "ret_mean_sim": +1, "ret_margin": +1, "ret_sim_entropy": -1,
     "ret_unique_docs": +1, "ret_page_spread": 0, "ret_n_blocks": 0,
     "ans_citations": +1, "ans_citation_density": +1, "ans_refusal": -1,
     "ans_length": 0, "ans_n_claims": 0, "ans_claim_density": 0,
+    # B 步新增：检索一致性（改写后二次检索与原检索的重叠）
+    "cons_doc_jaccard": +1, "cons_chunk_jaccard": +1, "cons_top1_agree": +1,
+    "cons_overlap3": +1, "cons_rank_corr": +1, "cons_doc_jaccard_p2": +1,
+    # B 步新增：散布 / 文档集中度 / 嵌入分布类
+    "ret_sim_std": 0, "ret_sim_iqr": 0, "ret_sim_range": 0, "ret_sim_skew": 0,
+    "ret_doc_hhi": +1,
+    "q_evi_cos": -1, "ans_evi_cos": -1, "ans_q_cos": +1, "ans_centroid_dist": 0,
 }
 
 # 长度派生指标：与"答案长度"强相关，而真值口径（短标准答案 + 精确匹配 + judge）
@@ -274,6 +281,40 @@ def load_audit_truths() -> Dict[str, Dict]:
         d["claim_support"] = ((d["sup"] + 0.5 * d["par"]) / content) if content else float("nan")
         d["evidence_gap"] = ((d["par"] + d["uns"]) / content) if content else float("nan")
         d["n_content"] = content
+    return out
+
+
+def load_extra_proxies(path: Optional[str] = None) -> Dict[str, Dict[str, float]]:
+    """读 B 步产出的补充代理（`results/proxy_extra_*.csv`，取最新一份）。
+
+    返回 {qid: {代理名: 值}}；没有该文件时返回空字典（工具降级为只跑原有代理）。
+    """
+    if path is None:
+        files = sorted(glob.glob(os.path.join(RESULTS_DIR, "proxy_extra_*.csv")))
+        if not files:
+            return {}
+        path = files[-1]
+    out: Dict[str, Dict[str, float]] = {}
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            for r in csv.DictReader(f):
+                qid = (r.get("qid") or "").strip()
+                if not qid:
+                    continue
+                vals: Dict[str, float] = {}
+                for k, v in r.items():
+                    if k == "qid" or k not in PROXY_DIRECTION:
+                        continue
+                    s = (v or "").strip()
+                    if s == "":
+                        continue
+                    try:
+                        vals[k] = float(s)
+                    except ValueError:
+                        continue
+                out[qid] = vals
+    except Exception:
+        return {}
     return out
 
 
@@ -514,6 +555,42 @@ def answer_gold_similarity(embedder, pred: str, gold: str) -> float:
 # --------------------------------------------------------------------------
 # 主流程
 # --------------------------------------------------------------------------
+def proxy_verdict(r: Dict, mde: float) -> str:
+    """对"代理 × 真值"这一行的有效性判定（纯函数，便于测试）。
+
+    规则：分布非退化 → 非长度派生 → 非单批次真值 → 批次内显著且两批同号 →
+    控制长度后不塌陷/不翻转；否则给出对应的不采信理由。方向与直觉相反但稳健的，
+    标注"按反向解读纳入"（例如检索文档多样性：越分散质量越差）。
+    """
+    rho_w = r.get("rho_within", float("nan"))
+    p_w = r.get("p_within_holm", float("nan"))
+    prho = r.get("rho_partial_len", float("nan"))
+    rare_note = "（稀有事件，估计不稳）" if r.get("is_rare") else ""
+    if not r.get("has_variance", True):
+        return "⬜ 分布退化（批次内近乎常数，不可用）"
+    if r.get("proxy") in LENGTH_DERIVED:
+        return "⚠️ 长度派生指标（与真值口径同源，不可独立使用）"
+    if r.get("single_batch"):
+        return "🟡 仅单批次真值（无法验证批次稳健性）" + rare_note
+    if not math.isnan(p_w) and p_w < 0.05:
+        if not r.get("sign_consistent", False):
+            return "⚠️ 批次内不一致（伪信号）"
+        if math.isnan(prho):
+            return "🟡 控制长度后退化（无法评估长度混淆）" + rare_note
+        if abs(prho) < 0.10:
+            return "⚠️ 控制长度后塌陷（长度混淆）"
+        if math.copysign(1, prho) != math.copysign(1, rho_w):
+            return "⚠️ 控制长度后符号翻转（长度混淆）"
+        if r.get("sign_ok") is False:
+            return "✅ 稳健但方向与直觉相反（按反向解读纳入）" + rare_note
+        return "✅ 建议纳入" + rare_note
+    if not math.isnan(r.get("p_holm", float("nan"))) and r["p_holm"] < 0.05:
+        return "⚠️ 池化显著但批次内不成立（批次伪信号）"
+    if not math.isnan(rho_w) and abs(rho_w) >= mde:
+        return "🟡 效应量够但校正后不显著（扩样本再验）"
+    return "⬜ 证据不足"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="E0：无标注代理指标有效性验证")
     ap.add_argument("--method", default="hmm", help="主口径分块方法（默认 hmm）")
@@ -529,6 +606,8 @@ def main() -> int:
                     help="补证据池时关闭 MMR（默认开启，与生成时一致）")
     ap.add_argument("--no-clean-log", action="store_true",
                     help="补证据池后不清理观测日志/MySQL 里的批量检索记录")
+    ap.add_argument("--extra", default=None, metavar="CSV",
+                    help="补充代理矩阵（B 步产物 results/proxy_extra_*.csv；缺省自动取最新一份）")
     args = ap.parse_args()
 
     stamp = time.strftime("%Y%m%d_%H%M")
@@ -559,6 +638,12 @@ def main() -> int:
 
     embedder = None if args.no_embed else get_embedder()
     batch_map = load_batch_map()
+    extra = load_extra_proxies(getattr(args, "extra", None))
+    if extra:
+        print(f"补充代理：{len(extra)} 题（来自 proxy_extra_*.csv，"
+              f"字段 {len(next(iter(extra.values())))} 个）")
+    else:
+        print("  [提示] 未发现 proxy_extra_*.csv（B 步补充代理），本次只跑原有代理")
     if batch_map:
         print(f"批次信息：{len(batch_map)} 题带 batch 标签"
               f"（{'、'.join(sorted(set(batch_map.values())))}）")
@@ -595,6 +680,7 @@ def main() -> int:
             "ans_gold_sim": gold_sim,
             "quality_composite": float(np.mean(parts)) if parts else float("nan"),
             **prox,
+            **(extra.get(qid, {}) if method == args.method else {}),
         })
 
     # 字段表固定（多分块模式下只有 hmm 行才有检索侧代理，不能从首行推断）
@@ -603,7 +689,8 @@ def main() -> int:
         batch_labels = batch_labels or ["all"]
     base_keys = ["qid", "method", "batch", "judge_corr", "judge_faith", "doc_hit",
                  "claim_support", "evidence_gap", "ans_gold_sim", "quality_composite"]
-    proxy_names = list(PROXY_DIRECTION)
+    proxy_names = [p for p in PROXY_DIRECTION
+                   if any(p in row for row in table)]      # 含 B 步补充代理（有数据才算）
     truth_names = list(TRUTH_LABEL)
     fieldnames = base_keys + proxy_names
 
@@ -652,10 +739,14 @@ def main() -> int:
                      if not math.isnan(part[b]["rho"]) and part[b]["n"] >= 8]
             sign_consistent = bool(signs) and all(
                 (r > 0) == (signs[0] > 0) and abs(r) >= 0.05 for r in signs)
-            has_variance = all(part[b]["level"] != "degenerate" for b in batch_labels) \
-                if batch_labels else True
-            is_rare = any(part[b]["level"] == "rare" for b in batch_labels) \
-                if batch_labels else False
+            # 只有"两批都有足够样本"的真值才能验证批次稳健性：
+            # 证据充分性/证据缺口率这类真值目前只有 40 题（仅 v1 批次），
+            # 不能因为 v2 批次为空就判"分布退化"（那是判定措辞错误）。
+            covered = [b for b in batch_labels if part[b]["n"] >= 8]
+            single_batch = len(covered) < 2
+            has_variance = all(part[b]["level"] != "degenerate" for b in covered) \
+                if covered else False
+            is_rare = any(part[b]["level"] == "rare" for b in covered)
             fam_rows.append({
                 "truth": truth, "proxy": p, "n": len(xs),
                 "rho": rho_all, "p": p_all, "ci_lo": lo, "ci_hi": hi,
@@ -663,7 +754,8 @@ def main() -> int:
                 "batch_diff_p": diff_p,
                 "rho_partial_len": prho, "n_partial": pn,
                 "sign_consistent": sign_consistent, "has_variance": has_variance,
-                "is_rare": is_rare,
+                "is_rare": is_rare, "single_batch": single_batch,
+                "batch_coverage": len(covered),
                 "expect": PROXY_DIRECTION[p],
                 "sign_ok": (None if math.isnan(rho_within) or PROXY_DIRECTION[p] == 0
                             else (rho_within > 0) == (PROXY_DIRECTION[p] > 0)),
@@ -725,43 +817,22 @@ def main() -> int:
     top_any = sorted([r for r in validity if not math.isnan(r["rho_within"])],
                      key=lambda r: -abs(r["rho_within"]))[:10]
 
-    def proxy_verdict(r: Dict) -> str:
-        """判定：批次内显著 + 两批同号 + 控制长度后不塌 + 分布非退化。
+    def proxy_verdict_local(r: Dict) -> str:
+        return proxy_verdict(r, mde)
 
-        注意长度派生指标：它们与真值口径同源（标准答案很短、精确匹配与 judge 都惩罚冗长），
-        用"控制长度"无法自证，因此单列一类，不当作独立代理。
-        """
-        rho_w, p_w = r.get("rho_within", float("nan")), r.get("p_within_holm", float("nan"))
-        prho = r.get("rho_partial_len", float("nan"))
-        if not r.get("has_variance", True):
-            return "⬜ 分布退化（批次内近乎常数，不可用）"
-        if r["proxy"] in LENGTH_DERIVED:
-            return "⚠️ 长度派生指标（与真值口径同源，不可独立使用）"
-        rare_note = "（稀有事件，估计不稳）" if r.get("is_rare") else ""
-        if not math.isnan(p_w) and p_w < 0.05:
-            if not r.get("sign_consistent", False):
-                return "⚠️ 批次内不一致（伪信号）"
-            if math.isnan(prho):
-                return "🟡 控制长度后退化（无法评估长度混淆）" + rare_note
-            if abs(prho) < 0.10:
-                return "⚠️ 控制长度后塌陷（长度混淆）"
-            if math.copysign(1, prho) != math.copysign(1, rho_w):
-                return "⚠️ 控制长度后符号翻转（长度混淆）"
-            if r.get("sign_ok") is False:
-                return "✅ 稳健但方向与直觉相反（按反向解读纳入）" + rare_note
-            return "✅ 建议纳入" + rare_note
-        if not math.isnan(r.get("p_holm", float("nan"))) and r["p_holm"] < 0.05:
-            return "⚠️ 池化显著但批次内不成立（批次伪信号）"
-        if not math.isnan(rho_w) and abs(rho_w) >= mde:
-            return "🟡 效应量够但校正后不显著（扩样本再验）"
-        return "⬜ 证据不足"
-
+    # 指标建议表：每个代理取"最强的那个真值"作证据，但**优先取两批都有的真值**
+    # （单批次真值无法验证批次稳健性，只在没有跨批真值时作为兜底证据）。
     best_by_proxy: Dict[str, Dict] = {}
     for r in validity:
         if math.isnan(r.get("rho_within", float("nan"))):
             continue
         cur = best_by_proxy.get(r["proxy"])
-        if cur is None or abs(r["rho_within"]) > abs(cur["rho_within"]):
+        if cur is None:
+            best_by_proxy[r["proxy"]] = r
+            continue
+        better_cov = (not r.get("single_batch")) and cur.get("single_batch")
+        same_cov = bool(r.get("single_batch")) == bool(cur.get("single_batch"))
+        if better_cov or (same_cov and abs(r["rho_within"]) > abs(cur["rho_within"])):
             best_by_proxy[r["proxy"]] = r
 
     # 批次构成（说明为什么必须分批看）
@@ -836,8 +907,8 @@ def main() -> int:
         lines.append(f"| {p} | {TRUTH_LABEL[r['truth']]} / {r['rho_within']:+.3f} / "
                      f"{r['p_within_holm']:.3f} | {pj} | "
                      f"{r['mean']:.3f} | {r['p95']:.3f} | {r['min']:.3f}~{r['max']:.3f} | "
-                     f"{proxy_verdict(r)} |")
-    sig = [r for r in strong if proxy_verdict(r).startswith("✅")]
+                     f"{proxy_verdict_local(r)} |")
+    sig = [r for r in strong if proxy_verdict_local(r).startswith("✅")]
     sig_proxies = sorted({r["proxy"] for r in sig})
     lines += ["", "## 结论", ""]
     if sig:
