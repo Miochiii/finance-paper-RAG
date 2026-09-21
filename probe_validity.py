@@ -35,12 +35,14 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import rag_core.config as config  # noqa: E402
 from rag_core.config import PROJECT_DIR  # noqa: E402
 
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results")
@@ -247,6 +249,106 @@ def get_embedder():
         return None
 
 
+# --------------------------------------------------------------------------
+# 证据池补全（评测集扩到 166 题后，旧缓存只有 40 题的证据）
+# --------------------------------------------------------------------------
+def _log_lines() -> List[str]:
+    try:
+        with open(config.OBS_LOG, encoding="utf-8") as f:
+            return [l for l in f.read().splitlines() if l.strip()]
+    except OSError:
+        return []
+
+
+def _log_search_rids(lines: List[str]) -> set:
+    out = set()
+    for line in lines:
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if d.get("event") == "search" and d.get("rid"):
+            out.add(d["rid"])
+    return out
+
+
+def clean_live_search_log(before_lines: List[str], expected: int) -> None:
+    """清理本次批量检索在观测日志与 MySQL 里留下的 search 事件（按 rid 精确比对）。
+
+    批量工具不该污染生产统计：删掉本次新增的 search 行，并同步删除 MySQL 中同 rid 的行、
+    回退 ETL 行号计数器。期间若在别处也做了检索，那些记录会被一并清掉，故打印数量对比。
+    """
+    before_rids = _log_search_rids(before_lines)
+    lines = _log_lines()
+    kept, removed_rids = [], []
+    for line in lines:
+        try:
+            d = json.loads(line)
+        except Exception:
+            kept.append(line)
+            continue
+        rid = d.get("rid")
+        if d.get("event") == "search" and rid and rid not in before_rids:
+            removed_rids.append(rid)
+            continue
+        kept.append(line)
+    if not removed_rids:
+        print("  [日志] 无需清理（未发现本次批量检索的记录）")
+        return
+    with open(config.OBS_LOG, "w", encoding="utf-8") as f:
+        f.write("\n".join(kept) + "\n")
+    n_db = 0
+    try:
+        from rag_core import mysql_store as ms
+        conn = ms._connect()
+        with conn.cursor() as cur:
+            # 只删本次批量检索的 rid（不用时间窗，避免误删你在面板里的检索）
+            for rid in removed_rids:
+                cur.execute("DELETE FROM fact_search_log WHERE rid = %s", (rid,))
+                n_db += cur.rowcount
+            cur.execute("UPDATE etl_state SET v = %s WHERE k = 'search_log_lines'",
+                        (str(len(kept)),))
+        conn.close()
+    except Exception as e:
+        print(f"  [日志] MySQL 清理跳过: {str(e)[:60]}")
+    note = "" if len(removed_rids) == expected else \
+        f"（本次预期 {expected} 条，实际清掉 {len(removed_rids)} 条：批量期间的其他检索也会被一并清理）"
+    print(f"  [日志] 已清理批量检索记录：jsonl {len(removed_rids)} 条 / MySQL {n_db} 行{note}")
+
+
+def fetch_missing_evidence(cache: Dict[str, List[Dict]], rows: List[Dict],
+                           top_k: int, mmr: bool, cache_path: str,
+                           clean_log: bool = True) -> Dict[str, List[Dict]]:
+    """为评测集里还没有证据池的题目补检索（走生产服务，配置与生成时一致）。
+
+    166 题 × 单次 10~25 秒 ≈ 30~60 分钟；只补缺失的，支持中断续跑（每 10 题落盘一次）。
+    """
+    todo = [r for r in rows if r["qid"] not in cache]
+    if not todo:
+        print("  证据池已完整，无需补检索")
+        return cache
+    print(f"  需补检索 {len(todo)} 题（已有 {len(cache)} 题；预计 "
+          f"{len(todo) * 12 / 60:.0f}~{len(todo) * 25 / 60:.0f} 分钟）")
+    print("  提示：批量期间请勿在别处检索——那些记录会被一并清理")
+    before = _log_lines()
+    done = 0
+    for i, r in enumerate(todo, 1):
+        try:
+            cache[r["qid"]] = fetch_evidence(r["question"], top_k, mmr)
+            done += 1
+        except Exception as e:
+            print(f"  [{i}/{len(todo)}] {r['qid']} 检索失败: {str(e)[:70]}", flush=True)
+            continue
+        if i % 10 == 0 or i == len(todo):
+            json.dump(cache, open(cache_path, "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=0)
+            print(f"  [{i}/{len(todo)}] 已补 {done} 题（缓存已落盘）", flush=True)
+    json.dump(cache, open(cache_path, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+    if clean_log:
+        clean_live_search_log(before, expected=done)
+    return cache
+
+
 def answer_gold_similarity(embedder, pred: str, gold: str) -> float:
     """答案 ↔ 标准答案的语义相似度（标签型真值，比 1–5 整数分敏感得多）。"""
     try:
@@ -265,6 +367,10 @@ def main() -> int:
     ap.add_argument("--methods", default="one", choices=["one", "all"],
                     help="回答侧代理是否扩展到全部 5 种分块（n=200）")
     ap.add_argument("--no-embed", action="store_true", help="跳过需要嵌入模型的检索侧指标")
+    ap.add_argument("--fetch-missing", action="store_true",
+                    help="先补齐缺失题目的证据池（走线上检索，166 题约 30~60 分钟），再跑统计")
+    ap.add_argument("--no-clean-log", action="store_true",
+                    help="补证据池后不清理观测日志/MySQL 里的批量检索记录")
     args = ap.parse_args()
 
     stamp = time.strftime("%Y%m%d_%H%M")
@@ -288,6 +394,9 @@ def main() -> int:
         cache = json.load(open(cache_path, encoding="utf-8"))
     print(f"评测行 {len(rows)} 条（{len(methods)} 种分块）｜证据缓存 {len(cache)} 题"
           f"（{os.path.basename(cache_path)}）｜claim_audit 真值 {len(audit)} 题")
+    if args.fetch_missing:
+        cache = fetch_missing_evidence(cache, rows, args.top_k, not args.no_mmr,
+                                       cache_path, clean_log=not args.no_clean_log)
 
     embedder = None if args.no_embed else get_embedder()
 
