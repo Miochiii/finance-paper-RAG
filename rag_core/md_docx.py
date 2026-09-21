@@ -303,17 +303,25 @@ def _add_rich_paragraph(p, text: str, ref_map: Dict[int, Tuple[str, str]], fmt: 
 
 
 def _add_heading_para(doc, level: int, text: str, spec: Dict):
-    """标题段落：序号与题名直连（不插全角空格，避免部分 Word 渲染成方块），
-    序号用西文字体（Times New Roman）。
+    """标题段落：序号用西文字体（Times New Roman），序号与题名之间不加全角空格
+    （U+3000 在部分环境显示为方块）。
+
+    多级序号（如 1.1）后补一个**西文空格**：论文排版惯例是「1.1 研究背景」，
+    直连成「1.1研究背景」可读性差；单级序号（1 引言）仍直连，保持原有行为。
     run 级显式设置字体（双保险：样式层的主题字体可能覆盖样式属性）。"""
     p = doc.add_paragraph(style=f"Heading {level}")
     t = text.strip()
     m = _HEAD_NUM_RE.match(t)
     if m:
-        r1 = p.add_run(m.group(1))
+        num, name = m.group(1), m.group(2)
+        r1 = p.add_run(num)
         _set_run_font(r1, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
                       spec.get("size_pt", 16), spec.get("bold", True))
-        r2 = p.add_run(m.group(2))  # 序号与题名直连（U+3000 全角空格在部分环境显示为方块）
+        if "." in num:
+            r_gap = p.add_run(" ")
+            _set_run_font(r_gap, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
+                          spec.get("size_pt", 16), spec.get("bold", True))
+        r2 = p.add_run(name)
         _set_run_font(r2, spec.get("cn_font", "黑体"), spec.get("en_font", "Times New Roman"),
                       spec.get("size_pt", 16), spec.get("bold", True))
     else:

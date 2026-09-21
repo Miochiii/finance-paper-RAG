@@ -126,12 +126,19 @@ class TestThesisFormatting:
         runs = para.runs
         assert runs[0].text == "1"
         assert runs[0].font.name == "Times New Roman"   # 序号用西文字体
-        assert runs[1].text == "引言"                    # 序号与题名直连（无全角空格）
+        assert runs[1].text == "引言"                    # 单级序号与题名直连（无全角空格）
         assert "\u3000" not in para.text
         # run 级中文字体显式生效（回归：主题字体 MS Gothic 覆盖问题）
         rPr2 = runs[1]._element.get_or_add_rPr()
         rfonts2 = rPr2.find(qn("w:rFonts"))
         assert rfonts2 is not None and rfonts2.get(qn("w:eastAsia")) == "黑体"
+
+    def test_heading_multilevel_number_keeps_single_space(self, work_tmp):
+        """多级序号（1.1）后保留一个西文空格：「1.1 研究背景」而非「1.1研究背景」。"""
+        doc = _write_and_read(work_tmp, "## 1.1 研究背景\n\n正文。", ref_map=REF_MAP)
+        para = next(p for p in doc.paragraphs if "研究背景" in p.text)
+        assert [r.text for r in para.runs] == ["1.1", " ", "研究背景"]
+        assert "\u3000" not in para.text
 
     def test_heading_styles_have_no_theme_fonts(self, work_tmp):
         """回归：样式 rFonts 不得残留主题字体引用（asciiTheme/eastAsiaTheme），
