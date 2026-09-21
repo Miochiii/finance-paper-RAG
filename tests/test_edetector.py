@@ -196,6 +196,86 @@ class TestDriftInjection:
         assert np.allclose(ed.inject_drift(s, at=99, delta=0.3, direction=1), s)
 
 
+class TestE1MultiIndicator:
+    """E1：多指标混合。要点是**保持指标间相关结构**与**逐指标用自己的 m**。"""
+
+    def test_series_matrix_intersects_rows(self):
+        rows = [
+            {"qid": "a", "method": "hmm", "x": "0.1", "y": "0.2"},
+            {"qid": "b", "method": "hmm", "x": "0.3", "y": ""},      # y 缺失 → 整行丢弃
+            {"qid": "c", "method": "hmm", "x": "0.5", "y": "0.6"},
+            {"qid": "d", "method": "fixed", "x": "9", "y": "9"},     # 非目标分块 → 丢弃
+        ]
+        X, qids = ed.series_matrix(rows, ["x", "y"])
+        assert qids == ["a", "c"]
+        assert X.shape == (2, 2) and X[1].tolist() == [0.5, 0.6]
+
+    def test_bootstrap_rows_keeps_within_row_dependence(self):
+        """联合重采样必须保持同一行内指标的相关性（否则混合效果会被高估）。"""
+        rng = np.random.default_rng(20)
+        base = rng.random((80, 1))
+        pool = np.hstack([base, 3.0 * base])          # 第二列恒为第一列的 3 倍
+        s = ed.bootstrap_rows(pool, reps=5, T=30, block=10, rng=rng)
+        assert s.shape == (5, 30, 2)
+        assert np.allclose(s[:, :, 1], 3.0 * s[:, :, 0])   # 相关性被完整保留
+
+    def test_bootstrap_rows_shape_and_range(self):
+        rng = np.random.default_rng(21)
+        pool = rng.random((50, 3))
+        s = ed.bootstrap_rows(pool, reps=4, T=25, block=5, rng=rng)
+        assert s.shape == (4, 25, 3) and s.min() >= 0 and s.max() <= 1
+
+    def test_mixture_between_min_and_max(self):
+        rng = np.random.default_rng(22)
+        streams = rng.random((6, 40, 3))
+        ms = [0.5, 0.5, 0.5]
+        lams = ed.lambda_grid(0.5, n_lam=3)
+        mix = ed.build_multi_detector(streams, ms, lams, "mix")
+        mx = ed.build_multi_detector(streams, ms, lams, "max")
+        mn = ed.build_multi_detector(streams, ms, lams, "min")
+        assert mix.shape == (6, 40)
+        assert (mx >= mix - 1e-9).all() and (mix >= mn - 1e-9).all()
+
+    def test_single_indicator_uses_only_that_column(self):
+        """how='one' 只应看指定指标：把别的指标灌成极值也不该影响它。"""
+        reps, T = 4, 60
+        calm = np.full((reps, T), 0.05)
+        spike = np.full((reps, T), 0.95)
+        streams = np.stack([spike, calm], axis=2)      # 指标0 爆炸、指标1 平静
+        lams = ed.lambda_grid(0.5, n_lam=3)
+        m_only0 = ed.build_multi_detector(streams, [0.5, 0.5], lams, "one", single_k=0)
+        m_only1 = ed.build_multi_detector(streams, [0.5, 0.5], lams, "one", single_k=1)
+        assert ed.first_alarm(m_only0, 2.0).min() > 0        # 指标0 很快报警
+        assert (ed.first_alarm(m_only1, 2.0) == 0).all()     # 指标1 永不报警
+
+    def test_per_indicator_bounds_are_used(self):
+        """每个指标用自己的 m：把某指标的 m 抬高到远超其取值，该指标就应当沉默。"""
+        reps, T = 4, 80
+        streams = np.stack([np.full((reps, T), 0.8), np.full((reps, T), 0.8)], axis=2)
+        lams = ed.lambda_grid(0.8, n_lam=3)
+        # m=0.7 < X=0.8：比值 >1，e-value 持续累积 → 报警
+        with_tight = ed.build_multi_detector(streams, [0.7, 0.7], lams, "mix")
+        # m=0.9 > X=0.8：每个分量的 L 都 <1 ⇒ M≤1 ⇒ 阈值 5 永远够不到
+        with_loose = ed.build_multi_detector(streams, [0.9, 0.9], lams, "mix")
+        assert ed.first_alarm(with_tight, 5.0).min() > 0
+        assert (ed.first_alarm(with_loose, 5.0) == 0).all()   # L≤1 ⇒ 永不报警
+
+    def test_e1_edd_targets_only_one_indicator(self):
+        """漂移只打在某个指标上时，只有盯它的检测器该报警（对照矩阵的对角线性质）。"""
+        rng = np.random.default_rng(23)
+        pool = np.tile(np.array([[0.2, 0.2, 0.2]]), (40, 1))
+        pool = np.vstack([pool, np.tile(np.array([[0.25, 0.25, 0.25]]), (40, 1))])
+        recs = ed.run_e1_edd(pool, [0.3, 0.3, 0.3], ed.lambda_grid(0.3, n_lam=3),
+                             alpha=0.5, at=100, delta=0.5, directions=[+1, +1, +1],
+                             reps=3, T_pre=100, T_post=100, rng=rng, targets=[0])
+        by_fuse = {(r["fuse"], r["drift_target"]): r for r in recs}
+        tgt = "仅指标#0"
+        assert by_fuse[("单指标#0", tgt)]["detect_rate"] > 0
+        assert by_fuse[("单指标#1", tgt)]["detect_rate"] == 0
+        assert by_fuse[("单指标#2", tgt)]["detect_rate"] == 0
+        assert by_fuse[("全指标混合", tgt)]["detect_rate"] > 0
+
+
 class TestSimulation:
     def test_block_bootstrap_shape(self):
         rng = np.random.default_rng(5)

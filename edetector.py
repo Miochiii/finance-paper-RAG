@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """edetector.py —— RAG 质量漂移的序贯检测：最小可行实现（E-detector 框架）。
 
 方法来源
@@ -52,12 +52,18 @@ LOG_DIR = os.path.join(PROJECT_DIR, "log")
 
 # 代理的"退化方向"：+1 表示数值变大=变差（如检索文档多样性），-1 表示变小=变差（如相似度）
 DEGRADE_DIRECTION = {
-    "ret_unique_docs": +1,      # 证据越分散越差（E0 实测）
+    "ret_unique_docs": +1,      # 证据越分散越差（E0/E1 实测：集中度 HHI 与之互为镜像）
     "ret_top1_sim": -1, "ret_mean_sim": -1, "ret_margin": -1,
     "ret_sim_entropy": +1, "ret_page_spread": +1, "ret_n_blocks": -1,
     "ans_refusal": +1,          # 拒答率上升=变差（E0 实测最稳健）
     "ans_length": -1, "ans_n_claims": -1, "ans_claim_density": -1,
     "ans_citations": -1, "ans_citation_density": -1,
+    # B 步新增代理（退化方向 = 数值往哪边走表示变差）
+    "ret_doc_hhi": -1,          # 证据集中度下降（越分散）= 变差
+    "cons_doc_jaccard": -1, "cons_chunk_jaccard": -1, "cons_top1_agree": -1,
+    "cons_overlap3": -1, "cons_rank_corr": -1, "cons_doc_jaccard_p2": -1,
+    "q_evi_cos": +1, "ans_evi_cos": +1, "ans_centroid_dist": 0,
+    "ret_sim_std": 0, "ret_sim_iqr": 0, "ret_sim_range": 0, "ret_sim_skew": 0,
 }
 FUSE_CHOICES = ("mix", "max", "min", "single")
 
@@ -236,6 +242,55 @@ def block_bootstrap(pool: np.ndarray, reps: int, T: int, block: int,
     return pool[idx % n][:, :T]
 
 
+def bootstrap_rows(pool: np.ndarray, reps: int, T: int, block: int,
+                   rng: np.random.Generator) -> np.ndarray:
+    """**联合**块自助：对"行"重采样一次，多个指标取同一批行。
+
+    多指标混合必须保持指标之间的相关结构（同一查询上的拒答、集中度、一致性是相关的），
+    所以不能各自独立重采样——那样会人为削弱相关性、把混合的效果估得过于乐观。
+    返回 (reps, T, K) 的联合流矩阵。
+    """
+    pool = np.asarray(pool, dtype=float)
+    n = pool.shape[0]
+    if n == 0:
+        raise ValueError("空数据池")
+    idx = block_bootstrap(np.arange(n, dtype=float), reps, T, block, rng).astype(int)
+    return pool[idx]
+
+
+def build_multi_detector(x_multi: np.ndarray, ms: Sequence[float], lams: np.ndarray,
+                         how: str = "mix", single_k: int = -1) -> np.ndarray:
+    """多指标 e-detector：(R,T,K) 联合流 → (R,T) 的 M 序列。
+
+    每个指标 k 用自己的上界 m_k 构造分量（合法性要求逐指标满足 μ_k ≤ m_k）：
+        L_n(k,λ) = 1 + λ(X_n(k)/m_k − 1)，M^CU_n(k,λ) = L_n(k,λ)·max(M^CU_{n−1}(k,λ), 1)
+    融合：
+        mix  = 对全部 (k,λ) 均匀加权平均 —— **命题 2.3 保证仍然合法**（E1 的主角）
+        max  = 逐点取最大 —— 不合法（Remark 3.1 对照）
+        min  = 逐点取最小 —— 合法但保守
+        one  = 只用单个指标（single_k 指定）在其 λ 网格上混合 —— E1 的基线
+    """
+    x_multi = np.asarray(x_multi, dtype=float)
+    if x_multi.ndim != 3:
+        raise ValueError("x_multi 应为 (R,T,K) 形状")
+    K = x_multi.shape[2]
+    comps = []
+    for k in range(K):
+        if how == "one" and single_k >= 0 and k != single_k:
+            continue
+        for lam in lams:
+            comps.append(cumulative_evalue_series(x_multi[:, :, k], float(ms[k]), float(lam)))
+    if not comps:
+        raise ValueError("没有可用的检测器分量")
+    stack = np.stack(comps, axis=0)                      # (C,R,T)
+    if how == "max":
+        return stack.max(axis=0)
+    if how == "min":
+        return stack.min(axis=0)
+    w = np.full(stack.shape[0], 1.0 / stack.shape[0])    # 权重和为 1，才保持合法
+    return np.tensordot(w, stack, axes=(0, 0))
+
+
 # --------------------------------------------------------------------------
 # 实验
 # --------------------------------------------------------------------------
@@ -281,6 +336,94 @@ def run_arl(x_streams: np.ndarray, m: float, lams: np.ndarray, how: str,
         "arl_mean": float(valid.mean()) if valid.size else float("inf"),
         "arl_median": float(np.median(valid)) if valid.size else float("inf"),
         "censored": censored,
+    }
+
+
+def run_e1_arl(streams: np.ndarray, ms: Sequence[float], lams: np.ndarray,
+               alpha: float) -> List[Dict]:
+    """E1：单指标 vs 多指标混合 的变前 ARL（同一批联合流，配对比较）。
+
+    返回每个配置一行的列表（配置 = 单独用第 k 个指标 / 全部指标混合 / 取最大 / 取最小）。
+    """
+    K = streams.shape[2]
+    out = []
+    for k in range(K):
+        M = build_multi_detector(streams, ms, lams, "one", single_k=k)
+        times = first_alarm(M, 1.0 / alpha)
+        ok = times > 0
+        out.append({"fuse": f"单指标#{k}", "k": k,
+                    "alarm_rate": float(ok.mean()),
+                    "arl_mean": float(times[ok].mean()) if ok.any() else float("inf"),
+                    "arl_median": float(np.median(times[ok])) if ok.any() else float("inf"),
+                    "n_comp": int(len(lams))})
+    for how, label in (("mix", "全指标混合"), ("max", "全指标取最大"), ("min", "全指标取最小")):
+        M = build_multi_detector(streams, ms, lams, how)
+        times = first_alarm(M, 1.0 / alpha)
+        ok = times > 0
+        out.append({"fuse": label, "k": -1,
+                    "alarm_rate": float(ok.mean()),
+                    "arl_mean": float(times[ok].mean()) if ok.any() else float("inf"),
+                    "arl_median": float(np.median(times[ok])) if ok.any() else float("inf"),
+                    "n_comp": int(len(lams) * (K if how != "one" else 1))})
+    return out
+
+
+def run_e1_edd(pool: np.ndarray, ms: Sequence[float], lams: np.ndarray, alpha: float,
+               at: int, delta: float, directions: Sequence[int], reps: int,
+               T_pre: int, T_post: int, rng: np.random.Generator,
+               mode: str = "contaminate", targets: Optional[Sequence[int]] = None) -> List[Dict]:
+    """E1：单指标 vs 多指标混合 的 EDD（同一批联合流 + 同一次注入，配对比较）。
+
+    `targets` 决定"漂移打在哪些指标上"：
+      - None / 全部：所有指标按各自退化方向同时变差（理想情况，各检测器都占便宜）；
+      - 只给一个 k：**只有第 k 个指标退化**——这是多指标融合的真正用武之地：
+        针对别的指标调好的单指标检测器会完全失效，而混合仍能检出（漂移类型未知时的鲁棒性）。
+    每个指标按自己的退化方向注入（拒答/分散度上升=变差，集中度/一致性下降=变差）。
+    """
+    K = pool.shape[1]
+    tgts: List[Optional[int]] = list(range(K)) if targets is None else list(targets)
+    pre_idx = block_bootstrap(np.arange(pool.shape[0], dtype=float), reps, T_pre, 20, rng).astype(int)
+    post_idx = block_bootstrap(np.arange(pool.shape[0], dtype=float), reps, T_post, 20, rng).astype(int)
+    pre = pool[pre_idx]                     # (R,T_pre,K)
+    post = pool[post_idx]
+    base = np.concatenate([pre, post], axis=1)
+    out: List[Dict] = []
+    for tgt in tgts:
+        stream = np.array(base, copy=True)
+        hits = range(K) if tgt is None else [tgt]
+        for k in hits:
+            # 注意：必须把**完整序列**与真实的变点位置传进去；
+            # 早期版本传的是已经切好的 stream[:, at:, k] 且 at=0，而 at<=0 是不注入的早退分支，
+            # 结果漂移根本没打进去（所有检出率恒为 0）。
+            stream[:, :, k] = inject_drift(stream[:, :, k], at=at, delta=delta,
+                                           direction=int(directions[k]), mode=mode, rng=rng)
+        label = "全部指标" if tgt is None else f"仅指标#{tgt}"
+        for k in range(K):
+            M = build_multi_detector(stream, ms, lams, "one", single_k=k)
+            out.append({"fuse": f"单指标#{k}", "k": k, "drift_target": label,
+                        **_edd_stats(M, alpha, at, T_post)})
+        for how, name in (("mix", "全指标混合"), ("max", "全指标取最大"), ("min", "全指标取最小")):
+            M = build_multi_detector(stream, ms, lams, how)
+            out.append({"fuse": name, "k": -1, "drift_target": label,
+                        **_edd_stats(M, alpha, at, T_post)})
+    for r in out:
+        r["delta"] = delta
+        r["inject_mode"] = mode
+    return out
+
+
+def _edd_stats(M: np.ndarray, alpha: float, at: int, T_post: int) -> Dict:
+    """从 M 序列算 EDD 相关统计（变前误报、检出率、EDD 均值/中位/截尾）。"""
+    times = first_alarm(M, 1.0 / alpha)
+    pre_alarm = float(((times > 0) & (times <= at)).mean())
+    detected = times > at
+    delay = times[detected] - at
+    return {
+        "pre_alarm_rate": pre_alarm,
+        "detect_rate": float(detected.mean()),
+        "edd_mean": float(delay.mean()) if delay.size else float("inf"),
+        "edd_median": float(np.median(delay)) if delay.size else float("inf"),
+        "edd_censored": float(np.where(detected, times - at, T_post).mean()),
     }
 
 
@@ -355,6 +498,41 @@ def series_from_rows(rows: List[Dict], proxy: str, method: str = "hmm") -> np.nd
     return np.asarray(out, dtype=float)
 
 
+def series_matrix(rows: List[Dict], proxies: Sequence[str],
+                  method: str = "hmm") -> Tuple[np.ndarray, List[str]]:
+    """多指标联合矩阵：只保留**所有指标都有值**的题（否则同一时刻的指标对不齐）。
+
+    返回 (X, qids)，X 形状 (n, K)。
+    """
+    vals: Dict[str, Dict[str, float]] = {p: {} for p in proxies}
+    order: List[str] = []
+    for r in rows:
+        if (r.get("method") or method) != method:
+            continue
+        qid = r["qid"]
+        got: Dict[str, float] = {}
+        ok = True
+        for p in proxies:
+            s = (r.get(p) or "").strip()
+            if s == "":
+                ok = False
+                break
+            try:
+                got[p] = float(s)
+            except ValueError:
+                ok = False
+                break
+        if not ok:
+            continue
+        for p in proxies:
+            vals[p][qid] = got[p]
+        order.append(qid)
+    if not order:
+        return np.zeros((0, len(proxies))), []
+    X = np.array([[vals[p][q] for p in proxies] for q in order], dtype=float)
+    return X, order
+
+
 # --------------------------------------------------------------------------
 # 主流程
 # --------------------------------------------------------------------------
@@ -394,6 +572,14 @@ def main() -> int:
                     help="切分校准段前先打乱序列（默认开）")
     ap.add_argument("--no-shuffle", dest="shuffle", action="store_false",
                     help="按原始行序切分（仅当数据确实带时间序时才用；否则会把批次差异当漂移）")
+    ap.add_argument("--e1", dest="e1", action="store_true", default=True,
+                    help="跑 E1：单指标 vs 多指标混合（默认开）")
+    ap.add_argument("--no-e1", dest="e1", action="store_false", help="跳过 E1")
+    ap.add_argument("--e1-proxies", default="ans_refusal,ret_doc_hhi,ret_unique_docs",
+                    help="E1 用哪些指标做混合（默认三个零成本的稳健代理）")
+    ap.add_argument("--e1-targets", default="each", choices=["each", "all"],
+                    help="E1 的漂移注入方式：each=逐个指标单独退化（对照矩阵，默认）；"
+                         "all=所有指标同时退化")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -430,13 +616,19 @@ def main() -> int:
             raw = rng.permutation(raw)
         n_calib = max(8, int(raw.size * args.calib_frac))
         u = fit_unit(raw[:n_calib], raw)
+        # **方向统一**：有界构造只能检出"数值超过 m"（上升），所以把"下降=退化"的代理翻正
+        # （如证据集中度 HHI、检索一致性：它们变小才是变差）。
+        # 不做这一步的话，这类代理即使真的退化了也永远检不出来（实测检出率恒为 0）。
+        if DEGRADE_DIRECTION.get(p, +1) < 0:
+            u = 1.0 - u
         if args.binarize > 0:
             u = (u >= args.binarize).astype(float)
         units[p] = u
         calib_idx[p] = n_calib
         extra = f"｜二元化(≥{args.binarize}) 正例率 {u.mean():.3f}" if args.binarize > 0 else ""
         print(f"  {p}: 原始 {raw.size} 条 → 均值 {u.mean():.3f}，范围 {u.min():.3f}~{u.max():.3f}"
-              f"（尺度按前 {n_calib} 条定{('，已打乱顺序' if args.shuffle else '，按原始行序')}）{extra}")
+              f"（尺度按前 {n_calib} 条定{('，已打乱顺序' if args.shuffle else '，按原始行序')}"
+              f"{'，已按退化方向翻正' if DEGRADE_DIRECTION.get(p, +1) < 0 else ''}）{extra}")
     if not units:
         print("[错误] 没有可用代理")
         return 1
@@ -505,6 +697,73 @@ def main() -> int:
                               f"检出率={rec['detect_rate']:.2f} "
                               f"EDD均值={rec['edd_mean']:>7.1f} 中位={rec['edd_median']:>6.1f}")
 
+    # ---- 实验 3：E1 单指标 vs 多指标混合（联合重采样，配对比较）----
+    if getattr(args, "e1", True):
+        e1_proxies = [p.strip() for p in (args.e1_proxies or "").split(",") if p.strip()]
+        e1_proxies = [p for p in e1_proxies if p in DEGRADE_DIRECTION]
+        X, qids = series_matrix(rows, e1_proxies)
+        if X.shape[0] < 30:
+            print(f"\n[实验 3/E1] 跳过：可用于联合分析的题数不足（{X.shape[0]}）")
+        else:
+            print(f"\n[实验 3/E1] 单指标 vs 多指标混合：{e1_proxies}（{X.shape[0]} 题对齐）")
+            n_calib_e1 = max(8, int(X.shape[0] * args.calib_frac))
+            if args.shuffle:
+                perm = rng.permutation(X.shape[0])
+                X = X[perm]
+            Xn = np.column_stack([fit_unit(X[:n_calib_e1, k], X[:, k])
+                                  for k in range(X.shape[1])])
+            for k, p in enumerate(e1_proxies):
+                if DEGRADE_DIRECTION.get(p, +1) < 0:      # 同样要把"下降=退化"的代理翻正
+                    Xn[:, k] = 1.0 - Xn[:, k]
+            if args.window > 1:
+                Xn = np.column_stack([rolling_mean(Xn[:, k], args.window)
+                                      for k in range(Xn.shape[1])])
+            if args.binarize > 0:
+                Xn = (Xn >= args.binarize).astype(float)
+            ms_e1 = [max(estimate_m(Xn[:n_calib_e1, k], strategies[0]), args.m_floor)
+                     for k in range(Xn.shape[1])]
+            pool_e1 = Xn[n_calib_e1:]
+            print("  各指标上界 m：" + "、".join(
+                f"{p}={m:.3f}" for p, m in zip(e1_proxies, ms_e1)))
+            lams_e1 = lambda_grid(max(ms_e1))
+            # 变前 ARL（同一批联合流）
+            streams_e1 = bootstrap_rows(pool_e1, args.reps, args.T, 20, rng)
+            for r in run_e1_arl(streams_e1, ms_e1, lams_e1, args.alpha):
+                idx = r["k"]
+                r.update({"experiment": "e1_arl", "proxy": (e1_proxies[idx] if idx >= 0 else "全指标"),
+                          "m_strategy": strategies[0], "alpha": args.alpha,
+                          "threshold": round(1.0 / args.alpha, 2), "window": args.window,
+                          "binarize": args.binarize, "K": len(e1_proxies),
+                          "n": int(X.shape[0])})
+                if isinstance(r.get("arl_mean"), float) and r["arl_mean"] == float("inf"):
+                    r["arl_mean"] = "inf"
+                records.append({k: (round(v, 3) if isinstance(v, float) else v)
+                                for k, v in r.items()})
+                print(f"  {r['fuse']:<12} ARL均值={r['arl_mean']} 报警率={r['alarm_rate']:.2f}")
+            # 漂移注入 EDD：既跑"全部指标同时退化"，也跑"只让某一个指标退化"
+            # （后者才是多指标融合的价值所在：漂移类型未知时单指标会瞎）
+            e1_targets = None if args.e1_targets == "all" else list(range(len(e1_proxies)))
+            for d in (deltas or [0.2]):
+                # 序列已按退化方向翻正 → 注入一律为"上升"（否则方向为 −1 的指标会被往下打，
+                # 而有界构造只能检出上升，等于白注入）
+                dirs = [+1] * len(e1_proxies)
+                for r in run_e1_edd(pool_e1, ms_e1, lams_e1, args.alpha_edd, at=120,
+                                    delta=d, directions=dirs, reps=args.reps_edd,
+                                    T_pre=120, T_post=args.T, rng=rng,
+                                    mode=args.inject_mode, targets=e1_targets):
+                    idx = r["k"]
+                    r.update({"experiment": "e1_edd",
+                              "proxy": (e1_proxies[idx] if idx >= 0 else "全指标"),
+                              "m_strategy": strategies[0], "alpha": args.alpha_edd,
+                              "threshold": round(1.0 / args.alpha_edd, 0),
+                              "window": args.window, "binarize": args.binarize,
+                              "K": len(e1_proxies), "n": int(X.shape[0])})
+                    records.append({k: (round(v, 3) if isinstance(v, float) else v)
+                                    for k, v in r.items()})
+                    em = r["edd_mean"]
+                    print(f"  Δ={d} {r['fuse']:<12} 检出率={r['detect_rate']:.2f} "
+                          f"EDD均值={'—' if em == float('inf') else f'{em:.1f}'}")
+
     # ---- 输出 ----
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_csv = os.path.join(RESULTS_DIR, f"edetector_{stamp}.csv")
@@ -539,7 +798,7 @@ def main() -> int:
     pre = block_bootstrap(u0[calib_idx[p0]:], 1, 120, 20, rng)
     post = block_bootstrap(u0[calib_idx[p0]:], 1, 300, 20, rng)
     drift = inject_drift(np.concatenate([pre, post], axis=1), 120, delta0,
-                         DEGRADE_DIRECTION.get(p0, +1), mode=args.inject_mode, rng=rng)
+                         +1, mode=args.inject_mode, rng=rng)   # 已翻正 → 一律上升
     series_csv = os.path.join(RESULTS_DIR, f"edetector_series_{stamp}.csv")
     mix = build_detectors(drift, m0, lams0, "mix")[0]
     mx = build_detectors(drift, m0, lams0, "max")[0]
@@ -656,6 +915,65 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
                     vals = [v for v in vals if v != float("inf")]
                     cells.append(f"{vals[0]:.0f}" if vals else "—")
                 lines.append(f"| {p_} | {s_} | " + " | ".join(cells) + " |")
+    # E1：单指标 vs 多指标混合
+    e1_arl = [r for r in records if r.get("experiment") == "e1_arl"]
+    e1_edd = [r for r in records if r.get("experiment") == "e1_edd"]
+    if e1_arl:
+        k_proxies = [r["proxy"] for r in e1_arl if r.get("k", -1) >= 0]
+        lines += ["", "## 四、E1：单指标 vs 多指标混合（联合重采样，配对比较）", "",
+                  "> 多个指标在**同一批流**上重采样（保持指标间相关结构），各自用自己的上界 m_k；",
+                  "> 「全指标混合」按命题 2.3 做凸组合（权重和为 1），因此合法性仍然成立。", "",
+                  "| 配置 | 分量数 | ARL 均值 | 报警率 |", "|---|---|---|---|"]
+        for r in e1_arl:
+            am = r["arl_mean"]
+            lines.append(f"| {r['fuse']}{('（' + r['proxy'] + '）') if r.get('k', -1) >= 0 else ''} | "
+                         f"{r.get('n_comp', '')} | {'inf' if am == 'inf' else f'{float(am):.1f}'} | "
+                         f"{r['alarm_rate']:.2f} |")
+        if e1_edd:
+            lines += ["", "| 配置 | 漂移目标 | Δ | 检出率 | EDD 均值 | EDD 中位 |",
+                      "|---|---|---|---|---|---|"]
+            for r in e1_edd:
+                em = r["edd_mean"]
+                ed = r["edd_median"]
+                lines.append(f"| {r['fuse']}{('（' + r['proxy'] + '）') if r.get('k', -1) >= 0 else ''} | "
+                             f"{r.get('drift_target', '')} | {r['delta']} | {r['detect_rate']:.2f} | "
+                             f"{'—' if em == 'inf' else f'{float(em):.1f}'} | "
+                             f"{'—' if ed == 'inf' else f'{float(ed):.1f}'} |")
+            # 核心对照矩阵：检测器 × 漂移目标（对角线快 = 打中了它盯的指标；对角线外应失效）
+            big = max(r["delta"] for r in e1_edd)
+            sub = [r for r in e1_edd if r["delta"] == big]
+            tgts = [t for t in dict.fromkeys(r.get("drift_target", "") for r in sub) if t]
+            dets = [d for d in dict.fromkeys(r["fuse"] for r in sub) if d]
+            if len(tgts) > 1 and len(dets) > 1:
+                lines += ["", "### 检测器 × 漂移目标 对照矩阵（单元格 = EDD 均值 / 检出率）", "",
+                          "> 对角线＝漂移正好打在它盯的指标上；对角线外＝打在别的指标上。",
+                          "> 单指标检测器在「打偏」时应失效（—），而混合应当仍然检出——"
+                          "这就是多指标融合在**漂移类型未知**时的价值。", "",
+                          "| 检测器 \\ 漂移目标 | " + " | ".join(tgts) + " |",
+                          "|---" * (len(tgts) + 1) + "|"]
+                for d in dets:
+                    cells = []
+                    for t in tgts:
+                        hit = [x for x in sub if x["fuse"] == d and x.get("drift_target") == t]
+                        if not hit:
+                            cells.append("—")
+                        else:
+                            x = hit[0]
+                            em = x["edd_mean"]
+                            cells.append(f"{'—' if em == 'inf' else f'{float(em):.0f}'} / {x['detect_rate']:.2f}")
+                    lines.append(f"| {d} | " + " | ".join(cells) + " |")
+            # 混合相对最好单指标的加速比
+            mix_rows = [r for r in e1_edd if r["k"] == -1 and r["fuse"] == "全指标混合"]
+            single_rows = [r for r in e1_edd if r["k"] >= 0]
+            for mrow in mix_rows:
+                same = [r for r in single_rows if r["delta"] == mrow["delta"]]
+                pairs = [(float(s["edd_mean"]), s["proxy"]) for s in same
+                         if s["edd_mean"] != "inf" and mrow["edd_mean"] != "inf"]
+                if pairs:
+                    best = min(pairs)
+                    lines.append(f"- Δ={mrow['delta']}：混合 EDD={float(mrow['edd_mean']):.1f} 步 "
+                                 f"vs 最好的单指标（{best[1]}）{best[0]:.1f} 步 → "
+                                 f"加速 **{best[0] / float(mrow['edd_mean']):.2f}×**")
     lines += [
         "",
         f"- 示例轨迹（可直接画图，已含阈值/变点/报警步数列）：`{os.path.basename(series_csv)}`；"
