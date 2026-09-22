@@ -469,6 +469,59 @@ class TestE3Weights:
         assert "退化" in src or "未找到" in src
 
 
+class TestE6Compare:
+    """E6：与相关工作同口径对比的纯函数（两样本统计量、阈值校准）。"""
+
+    def test_ks_2samp_zero_when_same_sample(self):
+        a = np.tile(np.linspace(0, 1, 40), (3, 1))
+        assert np.allclose(ed._ks_2samp(a, a), 0.0, atol=1e-12)
+
+    def test_ks_2samp_one_when_disjoint(self):
+        a = np.tile(np.linspace(0.0, 0.2, 30), (2, 1))
+        b = np.tile(np.linspace(0.5, 0.7, 30), (2, 1))
+        assert np.allclose(ed._ks_2samp(a, b), 1.0)
+
+    def test_jsd_2samp_handles_different_lengths(self):
+        rng = np.random.default_rng(51)
+        win = rng.random((4, 30))
+        ref = rng.random((4, 90))                    # 参考窗更长：早期版本在这里索引长度不匹配直接崩
+        v = ed._jsd_2samp(win, ref, bins=8)
+        assert v.shape == (4,) and np.isfinite(v).all() and (v >= 0).all()
+
+    def test_frechet_1d_detects_mean_shift(self):
+        rng = np.random.default_rng(52)
+        ref = rng.normal(0.0, 0.1, size=(3, 50))
+        same = rng.normal(0.0, 0.1, size=(3, 50))
+        shifted = rng.normal(0.5, 0.1, size=(3, 50))
+        assert (ed._frechet_1d(shifted, ref) > ed._frechet_1d(same, ref)).all()
+
+    def test_calibrate_threshold_hits_target_rate(self):
+        rng = np.random.default_rng(53)
+        null = rng.random((600, 30))
+        thr = ed.calibrate_threshold(null, 0.10)
+        got = float((ed.first_alarm(null, thr) > 0).mean())
+        assert abs(got - 0.10) < 0.05
+
+    def test_cusum_k_parameter_is_read_from_name(self):
+        """方法名里的 @k 要真的生效：k 越大越迟钝（同样漂移下统计量涨得慢）。"""
+        rng = np.random.default_rng(54)
+        x = np.concatenate([rng.normal(0.0, 0.1, size=(3, 60)),
+                            rng.normal(0.6, 0.1, size=(3, 60))], axis=1)
+        calib = rng.normal(0.0, 0.1, size=40)
+        s_small = ed.method_score("cusum@0.1", x, calib)
+        s_big = ed.method_score("cusum@1.0", x, calib)
+        assert s_small[:, -1].mean() > s_big[:, -1].mean()
+
+    def test_two_sample_reference_is_per_stream_head(self):
+        """两样本类方法必须用各流自己的前 ref_len 个点当参考，而不是校准段。"""
+        rng = np.random.default_rng(55)
+        x = rng.normal(0.0, 0.1, size=(3, 300))
+        calib = rng.normal(3.0, 1.0, size=40)         # 故意与流完全不同
+        s = ed.method_score("ks_window", x, calib, window=40, stride=5, ref_len=100)
+        # 用各流自己的头做参考 → 无漂移时统计量不应整段饱和
+        assert s[:, 120:].max() < 0.95
+
+
 class TestSimulation:
     def test_block_bootstrap_shape(self):
         rng = np.random.default_rng(5)

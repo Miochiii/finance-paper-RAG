@@ -38,6 +38,7 @@ VALIDITY_CSV = "proxy_validity_hmm_20260921_1928.csv"
 E5_CSV = "edetector_20260922_2023.csv"        # E5 扫描结果（含 e5_curve / e5_mix 行）
 E2_CSV = "edetector_20260922_2032.csv"        # E2 归因结果（含 e2_attr 行）
 E3_CSV = "edetector_20260922_2053.csv"        # E3 权重方案结果（含 e3_weight 行）
+E6_CSV = "edetector_20260922_2127.csv"        # E6 相关工作对比结果（含 e6_compare / e6_cusum_k）
 
 # ---- 配色（色盲友好的深浅对比）----
 BG = (255, 255, 255)
@@ -817,9 +818,103 @@ def fig8_weights(root=FIGS_DIR):
     return out, os.path.basename(E3_CSV)
 
 
+METHOD_SHORT = {
+    "edetector": "本文 e-detector",
+    "cusum": "经典 CUSUM",
+    "page_hinkley": "Page–Hinkley",
+    "ks_window": "两样本 KS",
+    "jsd_window": "JSD",
+    "frechet_window": "Fréchet 距离",
+    "mmd_window": "MMD",
+    "devatwal_manual": "人工阈值（Devatwal）",
+}
+
+
+def fig9_related_work(root=FIGS_DIR):
+    """E6：与相关工作同口径对比。
+
+    左：各方法在同一误报水平下的 EDD（三个指标平均，检出率不足的标灰/橙）；
+    右：CUSUM 的「假设位移」敏感性曲线（每个 Δ 一条线），绿虚线是本文方法（无需这个先验）。
+    """
+    rows = _load_e5(E6_CSV, "e6_compare")
+    ks = _load_e5(E6_CSV, "e6_cusum_k")
+    proxies = list(dict.fromkeys(r["proxy"] for r in rows))
+    methods = list(dict.fromkeys(r["method"] for r in rows))
+    delta = sorted({r["delta"] for r in rows if r["drift_target"] != "（变前）"})[0]
+    c = Canvas(1600, 960)
+    c.text(60, 40, "和现成方法比：谁更快，谁需要你先猜对", size=34, bold=True)
+    c.text(60, 96, f"全部方法看同一条输入序列，并各自把阈值校准到同一误报水平（1%）；"
+                   f"口径＝报警延迟 EDD（步，越短越好），Δ={delta}", size=19, color=MUTED)
+
+    # 横轴要给到「几乎检不出」的方法：它们的 EDD 上百步，若轴只到 70 柱子会画到坐标区外
+    p1 = Panel(c, (330, 250, 940, 700), (0, 240), (0, len(methods)), title="", ylabel="EDD（步）")
+    p1.grid([], [0, 60, 120, 180, 240], xlabels=["0", "60", "120", "180", "240"])
+    for i, mname in enumerate(methods):
+        edds, dets = [], []
+        for p_ in proxies:
+            hit = [r for r in rows if r["method"] == mname and r["proxy"] == p_
+                   and r["drift_target"] != "（变前）" and r["delta"] == delta]
+            if hit:
+                dets.append(float(hit[0]["detect_rate"]))
+                edds.append(None if is_inf_s(hit[0]["edd_mean"]) else float(hit[0]["edd_mean"]))
+        good = [e for e in edds if e is not None]
+        avg_det = sum(dets) / len(dets) if dets else 0.0
+        v = (sum(good) / len(good)) if good else 0.0
+        y = len(methods) - i - 0.5
+        col = GOOD if (good and avg_det >= 0.9) else (ORANGE if good else GRAY)
+        c.rect(p1.x0, p1.py(y + 0.32), p1.px(v), p1.py(y - 0.32), fill=col)
+        lab = f"{v:.1f}" if good else "检不出"
+        c.text(p1.px(v) + 10, p1.py(y) - 12, f"{lab}（检出率 {avg_det:.2f}）", size=16,
+               bold=True, color=col)
+        c.text(p1.x0 - 14, p1.py(y) - 12, METHOD_SHORT.get(mname, mname), size=17, anchor="ra")
+    c.text(330, 206, "① 同一误报水平下的报警延迟（三指标平均，Δ=0.2）", size=22, bold=True)
+
+    p2 = Panel(c, (1160, 250, 1540, 700), (0.05, 1.05), (0, 60), title="", ylabel="EDD（步）")
+    p2.grid([], [0.1, 0.25, 0.5, 1.0], xlabels=["0.1σ", "0.25σ", "0.5σ", "1σ"])
+    p_ks = proxies[0] if proxies else ""
+    sub = [r for r in ks if r["proxy"] == p_ks and r["drift_target"] != "（变前）"]
+    for j, d in enumerate(sorted({r["delta"] for r in sub})):
+        # 只取 CUSUM@k 的点：e-detector 的 assumed_k 是 NaN，混进来坐标会算成 NaN 直接崩
+        pts = [(p2.px(float(r["assumed_k"])), p2.py(float(r["edd_mean"])))
+               for r in sorted([x for x in sub if x["delta"] == d
+                                and x["method"].startswith("cusum@")
+                                and not is_inf_s(x["assumed_k"])
+                                and not is_inf_s(x["edd_mean"])],
+                               key=lambda x: float(x["assumed_k"]))]
+        col = BLUE if j == 0 else PURPLE
+        if len(pts) >= 2:
+            c.line(pts, color=col, width=3)
+        for x, y in pts:
+            c.circle(x, y, 6, fill=col)
+        if pts:
+            c.text(pts[-1][0] - 6, pts[-1][1] - 26, f"Δ={d}", size=17, color=col, anchor="ra")
+    e_line = [r for r in sub if r["method"] == "edetector" and not is_inf_s(r["edd_mean"])]
+    if e_line:
+        yy = p2.py(float(e_line[0]["edd_mean"]))
+        c.line([(p2.x0, yy), (p2.x1, yy)], color=GOOD, width=3, dash=8)
+        c.text(p2.x1 - 4, yy - 28, f"本文 {float(e_line[0]['edd_mean']):.1f}（无需指定）",
+               size=16, color=GOOD, anchor="ra")
+    c.text(1160, 206, "② CUSUM：假设位移选错的代价", size=22, bold=True)
+    c.text(p2.x0 + 8, p2.y0 + 8, f"（{METHOD_SHORT.get(p_ks, p_ks)}）", size=17, color=MUTED)
+
+    c.rect(150, 770, 1560, 900, fill=(232, 245, 233), outline=GOOD, width=2)
+    c.text(170, 782, "四条结论（含不利结果）：", size=20, bold=True)
+    c.text(170, 810, "① 漂移相对噪声大时，经典 CUSUM / Page–Hinkley 明显更快——"
+                     "但它们要知道尺度，且参考偏移要匹配真实位移；", size=18)
+    c.text(170, 836, "② 只因为「假设的位移」选得不同，CUSUM 的 EDD 就能相差几倍，"
+                     "本文方法没有这个旋钮（绿虚线）；", size=18)
+    c.text(170, 862, "③ 两样本分布检验（KS/JSD/MMD）在小漂移下几乎失效，大漂移下才可用——"
+                     "50 点窗的有效样本量远小于名义值；④ 人工阈值不可控。", size=18)
+    c.text(150, 912, "口径：块自助流（保留 20 步相关）、200 次重复、单指标序列、上界 m 取 E5 推荐值；"
+                     "两样本类方法的参考窗为各流前 120 个点。", size=17, color=MUTED)
+    out = os.path.join(root, "fig9_related_work.png")
+    c.save(out)
+    return out, os.path.basename(E6_CSV)
+
+
 FIGURES = {"fig1": fig1_matrix, "fig2": fig2_trajectory, "fig3": fig3_false_alarm,
            "fig4": fig4_validity, "fig5": fig5_cost_dilution, "fig6": fig6_m_tradeoff,
-           "fig7": fig7_attribution, "fig8": fig8_weights}
+           "fig7": fig7_attribution, "fig8": fig8_weights, "fig9": fig9_related_work}
 
 
 def main() -> int:
