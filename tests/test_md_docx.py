@@ -45,6 +45,18 @@ class TestConvertCitations:
         assert not any(k == "cite_ay" for k, _ in segs)
 
 
+class TestJoinWrapped:
+    def test_chinese_lines_join_without_space(self):
+        """中文软换行不该补空格（否则 Word 里出现「……报出来。 上面板是……」）。"""
+        assert M._join_wrapped(["变差之后确实上移了，", "但噪声很大。"]) == "变差之后确实上移了，但噪声很大。"
+
+    def test_english_lines_keep_space(self):
+        assert M._join_wrapped(["hello", "world"]) == "hello world"
+
+    def test_mixed_keeps_space_before_latin(self):
+        assert M._join_wrapped(["结论是", "ARL ≥ 1/α"]) == "结论是 ARL ≥ 1/α"
+
+
 class TestExtractRefMap:
     def test_parse(self):
         text = ("正文\n\n## 参考文献\n\n"

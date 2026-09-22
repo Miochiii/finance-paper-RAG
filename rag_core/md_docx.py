@@ -279,6 +279,30 @@ def _setup_section(doc, st: Dict):
 # --------------------------------------------------------------------------
 # Markdown → docx
 # --------------------------------------------------------------------------
+def _is_cjk(ch: str) -> bool:
+    """汉字、中文标点与全角符号——用于判断软换行处该不该补空格。"""
+    if not ch:
+        return False
+    o = ord(ch)
+    return (0x3000 <= o <= 0x303F or 0x4E00 <= o <= 0x9FFF or 0xFF00 <= o <= 0xFFEF
+            or 0x3400 <= o <= 0x4DBF)
+
+
+def _join_wrapped(buf: List[str]) -> str:
+    """合并被硬换行拆开的同一段：中文之间**不补空格**，其余补一个空格。
+
+    Markdown 的软换行在英文里等价于空格，但中文排版里会凭空多出一个空格
+    （「……报出来。 上面板是……」），这里按相邻字符语言决定是否补。
+    """
+    out = buf[0].strip() if buf else ""
+    for line in buf[1:]:
+        s = line.strip()
+        if not s:
+            continue
+        out += ("" if _is_cjk(out[-1:]) and _is_cjk(s[:1]) else " ") + s
+    return out
+
+
 def _add_text_runs(p, text: str):
     """普通文本段 → docx runs（支持 **粗体** 与 `行内代码`）。"""
     for part in _INLINE_RE.split(text):
@@ -491,7 +515,7 @@ def md_to_docx(text: str, out_path: str, title: str = "",
                 buf.append(lines[i])
                 i += 1
             p = doc.add_paragraph()
-            _add_rich_paragraph(p, " ".join(buf), ref_map, citation_format)
+            _add_rich_paragraph(p, _join_wrapped(buf), ref_map, citation_format)
             continue
         i += 1
 
