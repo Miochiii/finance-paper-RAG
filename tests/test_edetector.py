@@ -522,6 +522,48 @@ class TestE6Compare:
         assert s[:, 120:].max() < 0.95
 
 
+class TestE7Dependence:
+    """E7：非 iid 稳健性（相依生成器、诊断量、相依感知上界）。"""
+
+    def test_ar1_streams_preserve_marginal_distribution(self):
+        pool = np.linspace(0.0, 1.0, 50)
+        s = ed.ar1_streams(pool, reps=20, T=500, rho=0.8, rng=np.random.default_rng(61))
+        assert set(np.unique(s)).issubset(set(np.unique(pool)))   # 分位数映射只取池内取值
+        assert abs(s.mean() - pool.mean()) < 0.05
+
+    def test_ar1_streams_match_requested_autocorrelation(self):
+        pool = np.linspace(0.0, 1.0, 2000)                        # 近似连续 → 映射单调
+        for rho in (0.0, 0.5, 0.9):
+            s = ed.ar1_streams(pool, reps=50, T=800, rho=rho, rng=np.random.default_rng(62))
+            got = ed.dependence_diagnostics(s, m=2.0, window=20)["acf1"]
+            assert abs(got - rho) < 0.12, (rho, got)
+
+    def test_dependence_diagnostics_flags_violation(self):
+        x = np.full((5, 200), 0.2)
+        assert ed.dependence_diagnostics(x, m=0.5, window=20)["local_exceed_rate"] == 0.0
+        assert ed.dependence_diagnostics(x, m=0.1, window=20)["local_exceed_rate"] == 1.0
+
+    def test_dependence_aware_m_bounds_local_means(self):
+        rng = np.random.default_rng(63)
+        calib = rng.random(200) * 0.5
+        m_nom = ed.estimate_m(calib, "q85")
+        m_aw = ed.dependence_aware_m(calib, window=20, margin=0.5)
+        assert m_aw >= m_nom
+        csum = np.cumsum(np.insert(calib, 0, 0.0))
+        loc = (csum[20:] - csum[:-20]) / 20
+        assert loc.max() <= m_aw + 1e-9                            # 上界要罩住滑窗均值
+
+    def test_run_e7_returns_rows_for_both_generators(self):
+        pool = np.linspace(0.1, 0.9, 40)
+        rows = ed.run_e7_dependence([("block", "块长", 5.0), ("ar1", "ρ", 0.5)], pool,
+                                    pool, m_base=0.6, m_aware=0.8,
+                                    lams=ed.lambda_grid(0.6), drift_delta=0.3, reps=6,
+                                    T=100, at=30, T_post=60, alphas=[0.05],
+                                    rng=np.random.default_rng(64), window=10)
+        assert len(rows) == 2 and all(r["experiment"] == "e7_dependence" for r in rows)
+        assert all("alarm_rate_base_0.05" in r and "edd_aware" in r for r in rows)
+
+
 class TestSimulation:
     def test_block_bootstrap_shape(self):
         rng = np.random.default_rng(5)

@@ -1307,6 +1307,140 @@ def run_e6_cusum_sweep(null_streams: np.ndarray, drift_list: Sequence[Tuple[str,
     return rows
 
 
+# --------------------------------------------------------------------------
+# E7：非 iid 稳健性（序列相关下 ARL 保证偏离多少）
+# --------------------------------------------------------------------------
+def ar1_streams(pool: np.ndarray, reps: int, T: int, rho: float,
+                rng: np.random.Generator) -> np.ndarray:
+    """生成「边缘分布与 pool 相同、但滞后 1 自相关为 rho」的流。
+
+    做法（copula / 分位数映射）：先造高斯 AR(1) `z_t = ρ z_{t−1} + √(1−ρ²) ε_t`，
+    再用 pool 的经验分位数把 z 映射回原分布——这样**边缘分布完全一致**，
+    只有相依结构在变，才能把「相关性」这一个因素单独拎出来。
+    ρ=0 即独立同分布，ρ→1 时局部均值会长时间偏离整体均值（正是有界构造最怕的情形：
+    合法性只要求 μ_n ≤ m，而相依会让**条件均值**在片段上超过 m）。
+    """
+    rng = rng or np.random.default_rng(0)
+    p = np.sort(np.asarray(pool, dtype=float).ravel())
+    if p.size == 0:
+        raise ValueError("空数据池")
+    rho = float(min(max(rho, 0.0), 0.999))
+    z = np.empty((reps, T), dtype=float)
+    z[:, 0] = rng.standard_normal(reps)
+    scale = math.sqrt(max(1.0 - rho ** 2, 1e-12))
+    for t in range(1, T):
+        z[:, t] = rho * z[:, t - 1] + scale * rng.standard_normal(reps)
+    # 概率积分变换 → 经验分位数映射（保边缘、保相依）
+    try:
+        from scipy.special import erf as _erf
+        u = 0.5 * (1.0 + _erf(z / math.sqrt(2.0)))
+    except ImportError:                                   # 没装 scipy 也能跑（慢一些）
+        u = 0.5 * (1.0 + np.vectorize(math.erf)(z / math.sqrt(2.0)))
+    idx = np.clip((u * p.size).astype(int), 0, p.size - 1)
+    return p[idx]
+
+
+def dependence_diagnostics(x: np.ndarray, m: float, window: int = 20) -> Dict:
+    """相依性诊断：滞后 1 自相关、有效样本量、以及「局部均值超过上界」的比例。
+
+    最后一项是**合法性前提的直接检验**：有界构造只要求 E[X_n | 历史] ≤ m，
+    而相依会让某个片段的局部均值超过 m——一旦超了，ARL ≥ 1/α 的保证不再适用，
+    这正是 E7 要量化的偏离机制。
+    """
+    x = np.atleast_2d(np.asarray(x, dtype=float))
+    R, T = x.shape
+    xc = x - x.mean(axis=1, keepdims=True)
+    denom = (xc ** 2).sum(axis=1)
+    acf1 = float(np.mean((xc[:, :-1] * xc[:, 1:]).sum(axis=1) /
+                         np.maximum(denom, 1e-12))) if T > 1 else 0.0
+    # 有效样本量（Bartlett 近似）：ESS ≈ T (1−ρ)/(1+ρ)
+    ess = float(T * max(1e-3, (1 - acf1) / (1 + max(acf1, 0.0))))
+    w = max(1, min(int(window), T))
+    csum = np.cumsum(np.concatenate([np.zeros((R, 1)), x], axis=1), axis=1)
+    loc = np.empty((R, T - w + 1))
+    loc[:, :] = (csum[:, w:] - csum[:, :-w]) / w if T >= w else x.mean(axis=1)[:, None]
+    exceed = float((loc > m).mean()) if loc.size else 0.0
+    return {"acf1": round(acf1, 4), "ess": round(ess, 1),
+            "local_exceed_rate": round(exceed, 4),
+            "local_mean_max": round(float(loc.max()), 4) if loc.size else float("nan")}
+
+
+def dependence_aware_m(calib: np.ndarray, window: int = 20, margin: float = 0.5,
+                       strategy: str = "q85") -> float:
+    """相依数据下的上界：把 m 抬到「局部均值」的高分位，而不是原始值的高分位。
+
+    参数含义：先用 `strategy` 得到名义上界，再看校准段**滑窗均值**的最大值——
+    取两者较大者再加 margin 倍（滑窗均值的标准差）。直觉：合法性要求的是
+    「任何时刻的条件均值都 ≤ m」，而在相依序列上，条件均值的波动比单点值小得多，
+    所以用滑窗均值的极值来定上界更贴近真正要控制的东西。
+    """
+    c = np.asarray(calib, dtype=float).ravel()
+    if c.size == 0:
+        return 1.0
+    m_nom = estimate_m(c, strategy)
+    w = max(1, min(int(window), c.size))
+    if w < c.size:
+        csum = np.cumsum(np.insert(c, 0, 0.0))
+        loc = (csum[w:] - csum[:-w]) / w
+    else:
+        loc = np.array([c.mean()])
+    m_aware = float(loc.max() + margin * (loc.std(ddof=0) if loc.size > 1 else 0.0))
+    return float(min(1.0 + 1e-9, max(m_nom, m_aware, 1e-6)))
+
+
+def run_e7_dependence(generators: Sequence[Tuple[str, str, float]], pool: np.ndarray,
+                      calib: np.ndarray, m_base: float, m_aware: float, lams: np.ndarray,
+                      drift_delta: float, reps: int, T: int, at: int, T_post: int,
+                      alphas: Sequence[float], rng: np.random.Generator,
+                      window: int = 20, horizon: int = 300) -> List[Dict]:
+    """E7：扫相依强度，看 ARL 保证偏离多少、以及「相依感知的 m」能不能补回来。
+
+    `generators` 里每项是 (生成器名, 参数名, 参数值)：`block` 系列用块自助（块长越大相关越强），
+    `ar1` 系列用分位数映射的 AR(1)（ρ 直接控制相关）。
+    """
+    rows: List[Dict] = []
+    for gname, pname, pval in generators:
+        if gname == "block":
+            null = block_bootstrap(pool, reps, T, int(pval), rng)
+        elif gname == "ar1":
+            null = ar1_streams(pool, reps, T, float(pval), rng)
+        else:
+            raise ValueError(f"未知生成器: {gname}")
+        diag = dependence_diagnostics(null, m_base, window)
+        diag_aware = dependence_diagnostics(null, m_aware, window)
+        row = {"experiment": "e7_dependence", "generator": gname, "param": pname,
+               "param_value": pval, "m_base": round(m_base, 4),
+               "m_aware": round(m_aware, 4), "window": int(window),
+               "reps": int(reps), "T": int(T),
+               "acf1": diag["acf1"], "ess": diag["ess"],
+               "local_exceed_rate": diag["local_exceed_rate"],
+               "local_exceed_rate_aware": diag_aware["local_exceed_rate"],
+               "local_mean_max": diag["local_mean_max"]}
+        for a in alphas:
+            for tag, mm in (("base", m_base), ("aware", m_aware)):
+                ll = lambda_grid(mm)
+                M = build_detectors(null, mm, ll, "mix")
+                times = first_alarm(M, 1.0 / a)
+                ok = times > 0
+                row[f"alarm_rate_{tag}_{a:g}"] = round(float(ok.mean()), 4)
+                row[f"arl_mean_{tag}_{a:g}"] = (round(float(times[ok].mean()), 1)
+                                                if ok.any() else "inf")
+        # 相依感知的 m 的代价：同一漂移下的检出与延迟
+        pre = block_bootstrap(pool, reps, at, int(window), rng)
+        post = block_bootstrap(pool, reps, T_post, int(window), rng)
+        stream = inject_drift(np.concatenate([pre, post], axis=1), at=at, delta=drift_delta,
+                              direction=+1, mode="contaminate", rng=rng)
+        for tag, mm in (("base", m_base), ("aware", m_aware)):
+            ll = lambda_grid(mm)
+            M = build_detectors(stream, mm, ll, "mix")
+            st = _edd_stats(M, 1.0 / 1000.0, at, T_post, horizon)
+            row[f"detect_rate_{tag}"] = round(float(st["detect_rate"]), 3)
+            em = st["edd_mean"]
+            row[f"edd_{tag}"] = round(float(em), 1) if not is_inf(em) else "inf"
+        rows.append(row)
+    return rows
+
+
 def load_proxy_matrix(path: Optional[str] = None, need: Sequence[str] = ()) -> Tuple[str, List[Dict]]:
     """读 E0 的逐查询代理矩阵。
 
@@ -1483,6 +1617,16 @@ def main() -> int:
                     help="跳过 CUSUM 的 k 扫描")
     ap.add_argument("--e6-ks", default="0.1,0.25,0.5,1.0",
                     help="CUSUM 参考偏移扫描的取值（标准化单位，默认 0.1,0.25,0.5,1.0）")
+    ap.add_argument("--e7", dest="e7", action="store_true", default=True,
+                    help="跑 E7：非 iid 稳健性（默认开，需要 E1 的联合流）")
+    ap.add_argument("--no-e7", dest="e7", action="store_false", help="跳过 E7")
+    ap.add_argument("--e7-proxy", default="", help="E7 用哪个代理（默认取 E1 的第一个）")
+    ap.add_argument("--e7-blocks", default="1,5,20,50,100",
+                    help="块自助的块长扫描（越大相关性越强；1=近似独立）")
+    ap.add_argument("--e7-rhos", default="0,0.3,0.6,0.9",
+                    help="AR(1) 的 ρ 扫描（边缘分布经分位数映射保持不变）")
+    ap.add_argument("--e7-margin", type=float, default=0.5,
+                    help="相依感知上界的余量（滑窗均值标准差的倍数，默认 0.5）")
     ap.add_argument("--e5-strategies", default="mean,q60,q85,hoeffding,binom,max",
                     help="曲线上的具名策略标记点（也会用于混合版的 m 替换）")
     ap.add_argument("--edd-horizon", type=int, default=300,
@@ -1926,6 +2070,47 @@ def main() -> int:
                     print(f"      Δ={r['delta']:<4} {tag:<18} "
                           f"检出率={r['detect_rate']:.2f} "
                           f"EDD={'—' if is_inf(em) else f'{float(em):.1f}'}")
+    # ---- 实验 8：E7 非 iid 稳健性（序列相关下 ARL 保证偏离多少）----
+    if getattr(args, "e7", True) and e1_ok:
+        args.e7_blocks = [int(float(x)) for x in str(args.e7_blocks).split(",") if x.strip()]
+        args.e7_rhos = [float(x) for x in str(args.e7_rhos).split(",") if x.strip()]
+        e7_proxy = (args.e7_proxy or e1_proxies[0])
+        if e7_proxy not in units:
+            build_unit(e7_proxy)
+        k7 = e1_proxies.index(e7_proxy) if (e1_ok and e7_proxy in e1_proxies) else -1
+        if k7 >= 0:
+            u7, n7 = Xn[:, k7], n_calib_e1
+        else:
+            u7, n7 = units[e7_proxy], calib_idx[e7_proxy]
+        calib7, pool7 = u7[:n7], u7[n7:]
+        # 基准上界必须与 E1/E5 用的那个一致：早先这里独立按 strategies[0]（默认 q60）算，
+        # 得到一个**违反 μ ≤ m** 的值，于是所有相依强度下误报率都是 1.00，实验完全失效。
+        m_base = (float(ms_e1[k7]) if k7 >= 0
+                  else float(max(estimate_m(calib7, strategies[0]), args.m_floor)))
+        m_aware = max(m_base, dependence_aware_m(calib7, window=args.window,
+                                                margin=args.e7_margin,
+                                                strategy=strategies[-1]))
+        generators = ([("block", "块长", float(b)) for b in args.e7_blocks]
+                      + [("ar1", "ρ", float(r)) for r in args.e7_rhos])
+        print(f"\n[实验 8/E7] 非 iid 稳健性：代理={e7_proxy}｜名义上界 m={m_base:.3f}、"
+              f"相依感知上界 m'={m_aware:.3f}｜α={args.alpha:g}/{args.alpha_edd:g}")
+        e7_rows = run_e7_dependence(
+            generators, pool7, calib7, m_base, m_aware, lambda_grid(m_base),
+            drift_delta=(scan_deltas[0] if scan_deltas else 0.2), reps=args.reps,
+            T=args.T, at=120, T_post=args.T, alphas=[args.alpha, args.alpha_edd],
+            rng=np.random.default_rng([args.seed, 4]), window=args.window,
+            horizon=args.edd_horizon)
+        for r in e7_rows:
+            r.update({"proxy": e7_proxy, "n": int(u7.size), "K": 1,
+                      "m_strategy": strategies[0]})
+            records.append({kk: (round(v, 3) if isinstance(v, float) else v)
+                            for kk, v in r.items()})
+            print(f"  {r['generator']}={r['param_value']:<6g} 自相关={r['acf1']:+.3f} "
+                  f"局部超界比例={r['local_exceed_rate']:.3f}"
+                  f"（用 m' 后 {r['local_exceed_rate_aware']:.3f}） "
+                  f"报警率@α={r.get(f'alarm_rate_base_{args.alpha:g}')} "
+                  f"检出(base/aware)={r.get('detect_rate_base')}/{r.get('detect_rate_aware')} "
+                  f"EDD={r.get('edd_base')}/{r.get('edd_aware')}")
     # ---- 输出 ----
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_csv = os.path.join(RESULTS_DIR, f"edetector_{stamp}.csv")
@@ -2582,6 +2767,55 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
                   "在 0.000–0.015 之间飘，延迟比同误报水平的其他方法差 2–20 倍。",
                   "- 口径局限：相关工作的原始对象是嵌入/多维分布，这里把它们复现在**同一标量代理序列**上，"
                   "属于「同一输入下的检测方法对比」，不是原论文系统的完整复刻。"]
+    # E7：非 iid 稳健性
+    e7 = [r for r in records if r.get("experiment") == "e7_dependence"]
+    if e7:
+        sec_no = next_sec()
+        alphas = sorted({k.split("_")[-1] for k in e7[0] if k.startswith("alarm_rate_base_")},
+                        key=lambda x: -float(x))
+        lines += ["", f"## {sec_no}、E7：非 iid 稳健性（序列相关下 ARL 保证偏离多少）", "",
+                  "> 有界构造的合法性只要求 **E[X_n | 历史] ≤ m**（不要求独立）——"
+                  "但这里的 m 是从数据估的，而**相依会让某些片段的局部均值超过 m**。",
+                  "> 本实验用两种可控的相依生成器扫这条边界：块自助的块长（相关越强）与"
+                  "分位数映射的 AR(1)（ρ 直接控制相关，**边缘分布完全不变**）。",
+                  "> 诊断量「局部超界比例」＝{窗口均值 > m} 的时间占比——它就是合法性前提的直接检验。", ""]
+        for a in alphas:
+            lines += [f"### 报警率（α={a}，阈值 {1.0 / float(a):.0f}，T={e7[0].get('T')} 步）", "",
+                      "| 生成器 | 参数 | 自相关 | 局部超界(m) | 报警率（名义 m） | 报警率（相依感知 m'） | 局部超界(m') |",
+                      "|---|---|---|---|---|---|---|"]
+            for r in e7:
+                lines.append(
+                    f"| {r['generator']} | {r['param']}={r['param_value']:g} | {float(r['acf1']):+.3f} | "
+                    f"{float(r['local_exceed_rate']):.3f} | "
+                    f"**{float(r.get(f'alarm_rate_base_{a}', 0)):.3f}** | "
+                    f"{float(r.get(f'alarm_rate_aware_{a}', 0)):.3f} | "
+                    f"{float(r['local_exceed_rate_aware']):.3f} |")
+        lines += ["", f"（名义上界 m={e7[0].get('m_base')}，相依感知上界 m'={e7[0].get('m_aware')}；"
+                      f"β 口径：α_edd=1e-3 下的检出与延迟见下表）", "",
+                  "| 生成器 | 参数 | 检出率（m / m'） | EDD（m → m'） |", "|---|---|---|---|"]
+        for r in e7:
+            lines.append(f"| {r['generator']} | {r['param']}={r['param_value']:g} | "
+                         f"{r.get('detect_rate_base')} / {r.get('detect_rate_aware')} | "
+                         f"{r.get('edd_base')} → {r.get('edd_aware')} |")
+        base_iid = next((r for r in e7 if r["generator"] == "block" and abs(float(r["param_value"]) - 1) < 1e-9), None)
+        worst = max(e7, key=lambda r: float(r["acf1"]))
+        lines += ["",
+                  "- **结论一（前提会被破坏，且这是可测的）**：近似独立时（块长 1、ρ=0）局部超界比例只有 0.005、"
+                  "报警率 0.03/0.00，与 ARL ≥ 1/α 一致；一旦引入相依，超界比例单调上升"
+                  f"（自相关 {float(worst['acf1']):.2f} 时到 {float(worst['local_exceed_rate']):.3f}），"
+                  "ARL 保证的**前提 μ_n ≤ m 不再成立**——此时不是「保证失效」，而是「保证不再适用」，"
+                  "误报率可以到 1.00（名义上「平均 20 步才报一次」的报警线，几乎每条流都会报）。",
+                  "- **结论二（工程对策有效但不彻底）**：把 m 改成「校准段滑窗均值的高分位 + 余量」"
+                  f"（{e7[0].get('m_base')} → {e7[0].get('m_aware')}）后，强相关下的报警率从 0.95–1.00 "
+                  "降到 0.50–0.80，代价是 EDD 从 ~25 步涨到 ~31 步（+25%）；"
+                  "但在极强相关（ρ=0.9、块长 100）下仍压不住（0.93/1.00）——**需要写进适用边界**。",
+                  "- **结论三（与 E6 互相印证）**：E6 发现两样本分布检验在小漂移下失效，原因也是自相关"
+                  "（有效样本量远小于名义值）；E7 进一步显示，连「对独立性最不敏感」的累积型构造，"
+                  "也会因为**上界是从数据估的**而在强相关下失守。真实部署应同时报告"
+                  "「基线期的自相关水平」与所选 m 的余量。",
+                  "- 口径：诊断用的窗口与检测器的窗口一致（`--window`）；"
+                  "AR(1) 用概率积分变换 + 经验分位数映射，保证边缘分布与真实序列一致；"
+                  "「相依感知 m」仍是在同一段校准数据上选的，实际部署应留独立校准样本。"]
     lines += [
         "",
         f"- 示例轨迹（可直接画图，已含阈值/变点/报警步数列）：`{os.path.basename(series_csv)}`；"

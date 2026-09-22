@@ -39,6 +39,7 @@ E5_CSV = "edetector_20260922_2023.csv"        # E5 扫描结果（含 e5_curve /
 E2_CSV = "edetector_20260922_2032.csv"        # E2 归因结果（含 e2_attr 行）
 E3_CSV = "edetector_20260922_2053.csv"        # E3 权重方案结果（含 e3_weight 行）
 E6_CSV = "edetector_20260922_2127.csv"        # E6 相关工作对比结果（含 e6_compare / e6_cusum_k）
+E7_CSV = "edetector_20260922_2138.csv"        # E7 非 iid 稳健性结果（含 e7_dependence 行）
 
 # ---- 配色（色盲友好的深浅对比）----
 BG = (255, 255, 255)
@@ -912,9 +913,73 @@ def fig9_related_work(root=FIGS_DIR):
     return out, os.path.basename(E6_CSV)
 
 
+def fig10_dependence(root=FIGS_DIR):
+    """E7：序列相关下 ARL 保证的偏离。
+
+    左：报警率随自相关上升（名义 m vs 相依感知 m'），横向虚线是名义误报水平；
+    右：合法性前提「局部均值 ≤ m」被破坏的比例，以及 m' 的效果。
+    """
+    rows = _load_e5(E7_CSV, "e7_dependence")
+    a = "0.05"
+    c = Canvas(1520, 900)
+    c.text(60, 40, "序列相关一强，「平均 20 步才误报一次」就不成立了", size=34, bold=True)
+    c.text(60, 96, f"E7：块自助（块长越大越相关）与 AR(1)（ρ 控制相关、边缘分布不变）两种生成器；"
+                   f"α={a}（阈值 {1.0 / float(a):.0f}）、T={rows[0].get('T')} 步、"
+                   f"{rows[0].get('reps')} 次重复", size=19, color=MUTED)
+
+    p1 = Panel(c, (200, 280, 760, 660), (-0.1, 1.0), (0, 1.05), title="", ylabel="T 步内报警率")
+    p1.grid([0, 0.25, 0.5, 0.75, 1.0], [0, 0.25, 0.5, 0.75, 1.0],
+            xlabels=["0", "0.25", "0.5", "0.75", "1.0"],
+            ylabels=["0", "0.25", "0.5", "0.75", "1.0"])
+    p1.hline(float(a), color=MUTED, width=2, dash=6)
+    c.text(p1.x1 - 4, p1.py(float(a)) + 8, f"名义误报 α={a}", size=16, color=MUTED, anchor="ra")
+    for key, col in ((f"alarm_rate_base_{a}", BAD), (f"alarm_rate_aware_{a}", GOOD)):
+        pts = sorted([(float(r["acf1"]), float(r[key])) for r in rows
+                      if r.get(key) not in ("", None)])
+        if len(pts) >= 2:
+            c.line([(p1.px(x), p1.py(y)) for x, y in pts], color=col, width=3)
+        for x, y in pts:
+            c.circle(p1.px(x), p1.py(y), 6, fill=col)
+    c.text(200, 206, "① 报警率 vs 自相关", size=22, bold=True)
+    c.rect(206, 238, 224, 254, fill=BAD)
+    c.text(232, 236, "名义 m", size=19, color=BAD, bold=True)
+    c.rect(360, 238, 378, 254, fill=GOOD)
+    c.text(386, 236, "相依感知 m'", size=19, color=GOOD, bold=True)
+
+    p2 = Panel(c, (1060, 280, 1460, 660), (-0.1, 1.0), (0, 0.25), title="",
+               ylabel="局部均值超界比例")
+    # Panel.grid(yticks, xticks, xlabels, ylabels)：两组刻度的标签个数必须与各自刻度一致
+    p2.grid([0, 0.05, 0.10, 0.15, 0.20, 0.25], [0, 0.25, 0.5, 0.75, 1.0],
+            xlabels=["0", "0.25", "0.5", "0.75", "1.0"],
+            ylabels=["0", "5%", "10%", "15%", "20%", "25%"])
+    for key, col in (("local_exceed_rate", BAD), ("local_exceed_rate_aware", GOOD)):
+        pts = sorted([(float(r["acf1"]), float(r[key])) for r in rows
+                      if r.get(key) not in ("", None)])
+        if len(pts) >= 2:
+            c.line([(p2.px(x), p2.py(y)) for x, y in pts], color=col, width=3)
+        for x, y in pts:
+            c.circle(p2.px(x), p2.py(y), 6, fill=col)
+    c.text(1060, 206, "② 合法性前提被破坏的比例", size=22, bold=True)
+
+    c.rect(150, 700, 1460, 830, fill=(255, 235, 238), outline=BAD, width=2)
+    c.text(170, 712, "结论（对本文不利，但必须报告）：", size=20, bold=True, color=BAD)
+    c.text(170, 742, "① 近似独立时报警率 0.03/0.00，与 ARL ≥ 1/α 一致；一旦有相依，"
+                     "局部超界比例从 0.5% 涨到 8–20%，", size=19)
+    c.text(170, 768, "   报警率随之飙到 0.95–1.00 —— 前提 μ_n ≤ m 不再成立，"
+                     "此时保证不是「失效」而是「不适用」；", size=19)
+    c.text(170, 794, "② 把 m 改成「滑窗均值高分位 + 余量」可把强相关下的报警率降到 0.5–0.8，"
+                     "代价是 EDD +25%（25 → 31 步）；ρ≈0.9 时仍压不住。", size=19)
+    c.text(150, 850, "口径：诊断窗口与检测器窗口一致；AR(1) 用分位数映射保证边缘分布不变；"
+                     "两个 m 都在同一段校准数据上选。", size=17, color=MUTED)
+    out = os.path.join(root, "fig10_dependence.png")
+    c.save(out)
+    return out, os.path.basename(E7_CSV)
+
+
 FIGURES = {"fig1": fig1_matrix, "fig2": fig2_trajectory, "fig3": fig3_false_alarm,
            "fig4": fig4_validity, "fig5": fig5_cost_dilution, "fig6": fig6_m_tradeoff,
-           "fig7": fig7_attribution, "fig8": fig8_weights, "fig9": fig9_related_work}
+           "fig7": fig7_attribution, "fig8": fig8_weights, "fig9": fig9_related_work,
+           "fig10": fig10_dependence}
 
 
 def main() -> int:
