@@ -1626,7 +1626,9 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
     if e2:
         hz = e2[0].get("horizon", "")
         win = e2[0].get("window", "")
-        lines += ["", "## 六、E2：漂移类型归因（报警之后，是哪一个指标在退化）", "",
+        # 章节号随「E5 是否存在」浮动：跳过 E5 的报告里不应留下空号
+        sec_no = "六" if (e5_curve or e5_mix) else "五"
+        lines += ["", f"## {sec_no}、E2：漂移类型归因（报警之后，是哪一个指标在退化）", "",
                   "> E1 回答了「有没有变差」，E2 回答「是哪一类变差」。做法：混合统计量",
                   "> M_n = Σ_k ω_k M_k(n) 按指标可分解，报警时比较各指标自身的 e-value",
                   "> （规则 evalue）、最近一段的对数增量（规则 recent），",
