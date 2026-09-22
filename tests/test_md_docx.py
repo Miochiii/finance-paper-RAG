@@ -15,6 +15,12 @@ def _use_tmp(monkeypatch, work_tmp):
 
 REF_MAP = {1: ("李安哲", "2022"), 2: ("张璐瑶", "2023")}
 
+# 1×1 透明 PNG：给图片嵌入测试用，避免依赖 Pillow
+_PNG_1x1 = bytes.fromhex(
+    "89504e470d0a1a0a0000000d494844520000000100000001080600000"
+    "01f15c4890000000a49444154789c6300010000050001"
+    "0d0a2db40000000049454e44ae426082")
+
 
 class TestConvertCitations:
     def test_single(self):
@@ -139,6 +145,20 @@ class TestThesisFormatting:
         para = next(p for p in doc.paragraphs if "研究背景" in p.text)
         assert [r.text for r in para.runs] == ["1.1", " ", "研究背景"]
         assert "\u3000" not in para.text
+
+    def test_image_embedded_with_caption(self, work_tmp):
+        """独占一行的 ![图注](路径) 要真的嵌图并带图注；路径缺失时给提示而不是崩。"""
+        png = os.path.join(work_tmp, "t.png")
+        with open(png, "wb") as f:
+            f.write(_PNG_1x1)
+        doc = _write_and_read(
+            work_tmp, f"正文。\n\n![图 1 示例]({png}){{width=3.0}}\n\n后文。", ref_map=REF_MAP)
+        assert len(doc.inline_shapes) == 1
+        assert any("图 1 示例" in p.text for p in doc.paragraphs)
+        assert any("后文" in p.text for p in doc.paragraphs)
+        doc2 = _write_and_read(work_tmp, "![缺图](no_such_file.png)", ref_map=REF_MAP)
+        assert len(doc2.inline_shapes) == 0
+        assert any("图片缺失" in p.text for p in doc2.paragraphs)
 
     def test_heading_styles_have_no_theme_fonts(self, work_tmp):
         """回归：样式 rFonts 不得残留主题字体引用（asciiTheme/eastAsiaTheme），

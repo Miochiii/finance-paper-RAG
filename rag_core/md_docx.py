@@ -31,12 +31,14 @@ from typing import Dict, List, Optional, Tuple
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Mm, Pt, RGBColor
+from docx.shared import Inches, Mm, Pt, RGBColor
 
 _CITE_RE = re.compile(r"\[(\d+)\]")
 _REF_LINE_RE = re.compile(r"^\[(\d+)\]\s*([^\.\s，,]+).*?（(\d{4})）")
 _INLINE_RE = re.compile(r"(\*\*.+?\*\*|`[^`]+`)")
 _HEAD_NUM_RE = re.compile(r"^(\d+(?:[\.、]\d+)*)\s+(.+)$")
+# 独占一行的图片：![说明](路径)  可选 {width=5.5}（英寸）；说明非空时作为图注
+_IMG_RE = re.compile(r"^!\[([^\]]*)\]\(([^)]+)\)\s*(?:\{width=([\d.]+)\})?\s*$")
 
 Segment = Tuple[str, str]  # (kind, text)：text / cite_sup / cite_ay
 
@@ -410,6 +412,26 @@ def md_to_docx(text: str, out_path: str, title: str = "",
             continue
 
         if re.match(r"^(\s*[-*_]){3,}\s*$", line):
+            i += 1
+            continue
+
+        # 图片（独占一行）：![图注](路径){width=5.5}
+        img = _IMG_RE.match(stripped)
+        if img:
+            caption, src, width = img.group(1).strip(), img.group(2).strip(), img.group(3)
+            if os.path.isfile(src):
+                pic_p = doc.add_paragraph()
+                pic_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pic_p.add_run().add_picture(src, width=Inches(float(width) if width else 5.8))
+                if caption:
+                    cap = doc.add_paragraph()
+                    cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    r = cap.add_run(caption)
+                    _set_run_font(r, st["table"]["cn_font"], st["table"]["en_font"],
+                                  st["table"]["size_pt"] - 1, False)
+            else:
+                p = doc.add_paragraph()
+                _add_rich_paragraph(p, f"（图片缺失：{src}）", ref_map, citation_format)
             i += 1
             continue
 
