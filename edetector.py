@@ -429,6 +429,16 @@ def is_inf(v) -> bool:
         return True
 
 
+def _num(v, fmt: str = "{:.2f}") -> str:
+    """报告里用的安全数值格式化：缺失/无定义一律显示「—」。"""
+    if v is None or v == "" or is_inf(v):
+        return "—"
+    try:
+        return fmt.format(float(v))
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _edd_stats(M: np.ndarray, alpha: float, at: int, T_post: int,
                horizon: int = 0) -> Dict:
     """从 M 序列算 EDD 相关统计（变前误报、检出率、EDD 均值/中位/截尾）。
@@ -478,6 +488,139 @@ def run_edd(pool: np.ndarray, m: float, lams: np.ndarray, how: str, alpha: float
     M = build_detectors(stream, m, lams, how)
     return {"delta": delta, "direction": direction, "inject_mode": mode,
             **_edd_stats(M, alpha, at, T_post, horizon)}
+
+
+# --------------------------------------------------------------------------
+# E5：m 策略扫描 —— 保守性与检测延迟的权衡曲线
+# --------------------------------------------------------------------------
+NAMED_M_STRATEGIES = ("mean", "p95", "hoeffding", "binom", "max")
+
+
+def m_grid_from_calib(calib: np.ndarray, extra_strategies: Sequence[str] = (),
+                      n_grid: int = 13) -> List[Tuple[str, float]]:
+    """要扫描的 (标签, m) 列表：分位数主网格 + 具名策略标记点，按 m 升序去重。
+
+    曲线需要的是**连续**的 m，而不是几个具名策略；主网格用校准段的分位数 q50…q100
+    （τ 越大越保守），再把工程上常用的具名估计（mean/p95/hoeffding/binom/max）
+    作为曲线上的标记点，这样能直接读出「平时习惯用的那个估计落在曲线哪里」。
+    同一取值只保留一个标签，优先保留具名策略。
+    """
+    a = np.asarray(calib, dtype=float)
+    if a.size == 0:
+        return []
+    pts: List[Tuple[int, str, float]] = []
+    for t in np.linspace(0.5, 1.0, max(2, int(n_grid))):
+        pts.append((1, f"q{int(round(t * 100))}", float(np.quantile(a, float(t)))))
+    for s in extra_strategies:
+        s = (s or "").strip()
+        if not s:
+            continue
+        pts.append((0, s, float(estimate_m(a, s))))
+    out: List[Tuple[str, float]] = []
+    seen = set()
+    for _prio, lab, m in sorted(pts, key=lambda x: (x[2], x[0], x[1])):
+        key = round(m, 9)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((lab, m))
+    return out
+
+
+def e5_curve_rows(null_streams: np.ndarray, drift_streams: Dict[float, np.ndarray],
+                  points: Sequence[Tuple[str, float]], fuses: Sequence[str],
+                  alpha: float, alpha_edd: float, at: int, horizon: int = 0,
+                  m_floor: float = 1e-3, pool_mean: Optional[float] = None) -> List[Dict]:
+    """单代理的 m 扫描：每个 m 点给出（变前报警率, 检出率, EDD）。
+
+    **变前流与漂移流在 m 之间共用**（只重算检测器、不重新重采样），
+    因此曲线上的点是配对的，点与点之间的差异来自 m 而不是抽样噪声。
+    """
+    rows: List[Dict] = []
+    null_streams = np.asarray(null_streams, dtype=float)
+    T = int(null_streams.shape[1])
+    for lab, m_raw in points:
+        m = float(max(m_raw, m_floor))
+        lams = lambda_grid(m)
+        arl_cache: Dict[str, Dict] = {}
+        for how in fuses:
+            M = build_detectors(null_streams, m, lams, how)
+            times = first_alarm(M, 1.0 / alpha)
+            ok = times > 0
+            # 同时按**实际运行的那条报警线**（α_edd，E1 的检测实验用它）算一次误报率：
+            # 选 m 应该按实际使用的阈值判断，只看 α=0.05 会把可选区间压得过窄。
+            times_op = first_alarm(M, 1.0 / alpha_edd)
+            arl_cache[how] = {
+                "arl_alarm_rate": float(ok.mean()),
+                "arl_alarm_rate_op": float((times_op > 0).mean()),
+                "arl_mean": float(times[ok].mean()) if ok.any() else float("inf"),
+                "arl_median": float(np.median(times[ok])) if ok.any() else float("inf"),
+            }
+        for d, stream in (drift_streams.items() if drift_streams else [(None, None)]):
+            if stream is None:                      # 只扫 ARL（例如 --no-inject）
+                for how in fuses:
+                    rows.append({
+                        "experiment": "e5_curve", "m_label": lab, "m": round(m, 4),
+                        "pool_mean": (round(float(pool_mean), 4) if pool_mean is not None else ""),
+                        "m_ge_pool_mean": (int(bool(pool_mean is not None and m >= pool_mean))
+                                           if pool_mean is not None else ""),
+                        "delta": "", "fuse": how, "alpha": alpha, "alpha_edd": alpha_edd,
+                        "threshold": round(1.0 / alpha, 2), "K": int(len(lams)), "T": T,
+                        "detect_rate": "", "late_alarm_rate": "", "edd_mean": "inf",
+                        "edd_median": "inf", "edd_censored": "", "pre_alarm_rate": "",
+                        **arl_cache[how]})
+                continue
+            T_post = int(stream.shape[1]) - at
+            for how in fuses:
+                M = build_detectors(np.asarray(stream, dtype=float), m, lams, how)
+                rows.append({
+                    "experiment": "e5_curve", "m_label": lab, "m": round(m, 4),
+                    "pool_mean": (round(float(pool_mean), 4) if pool_mean is not None else ""),
+                    "m_ge_pool_mean": (int(bool(pool_mean is not None and m >= pool_mean))
+                                       if pool_mean is not None else ""),
+                    "delta": d, "fuse": how, "alpha": alpha, "alpha_edd": alpha_edd,
+                    "threshold": round(1.0 / alpha, 2),
+                    "K": int(len(lams)), "T": T,
+                    **arl_cache[how], **_edd_stats(M, alpha_edd, at, T_post, horizon),
+                })
+    return rows
+
+
+def e5_mix_rows(null_multi: np.ndarray, drift_multi: Sequence[Tuple[str, float, np.ndarray]],
+                ms_by_strategy: Sequence[Tuple[str, Sequence[float]]], alpha: float,
+                alpha_edd: float, at: int, horizon: int = 0) -> List[Dict]:
+    """混合检测器的 m 扫描：同一策略下把所有指标的 m 一起换掉。
+
+    `drift_multi` 是 (漂移目标标签, Δ, 联合流) 的列表，流在各策略间共用（配对比较）。
+    只跑「全指标混合」这一种融合——E5 关心的是 m，不是融合方式（后者是 E2 的事）。
+    """
+    rows: List[Dict] = []
+    null_multi = np.asarray(null_multi, dtype=float)
+    for strat, ms in ms_by_strategy:
+        ms = [float(x) for x in ms]
+        lams = lambda_grid(max(ms))
+        M = build_multi_detector(null_multi, ms, lams, "mix")
+        times = first_alarm(M, 1.0 / alpha)
+        ok = times > 0
+        rows.append({"experiment": "e5_mix", "m_strategy": strat, "m_label": strat,
+                     "ms": "、".join(f"{x:.3f}" for x in ms),
+                     "m": round(float(max(ms)), 4), "fuse": "全指标混合",
+                     "drift_target": "（变前）", "delta": "", "alpha": alpha,
+                     "threshold": round(1.0 / alpha, 2),
+                     "arl_alarm_rate": float(ok.mean()),
+                     "arl_mean": float(times[ok].mean()) if ok.any() else float("inf"),
+                     "arl_median": float(np.median(times[ok])) if ok.any() else float("inf")})
+        for label, d, stream in drift_multi:
+            stream = np.asarray(stream, dtype=float)
+            T_post = int(stream.shape[1]) - at
+            M = build_multi_detector(stream, ms, lams, "mix")
+            rows.append({"experiment": "e5_mix", "m_strategy": strat, "m_label": strat,
+                         "ms": "、".join(f"{x:.3f}" for x in ms),
+                         "m": round(float(max(ms)), 4), "fuse": "全指标混合",
+                         "drift_target": label, "delta": d, "alpha_edd": alpha_edd,
+                         "threshold": round(1.0 / alpha_edd, 2), "K": int(len(lams)),
+                         **_edd_stats(M, alpha_edd, at, T_post, horizon)})
+    return rows
 
 
 def load_proxy_matrix(path: Optional[str] = None, need: Sequence[str] = ()) -> Tuple[str, List[Dict]]:
@@ -604,6 +747,18 @@ def main() -> int:
     ap.add_argument("--e1-targets", default="each", choices=["each", "all"],
                     help="E1 的漂移注入方式：each=逐个指标单独退化（对照矩阵，默认）；"
                          "all=所有指标同时退化")
+    ap.add_argument("--e1-m", default="",
+                    help="手工指定 E1 各指标的上界 m（逗号分隔，顺序与 --e1-proxies 一致）；"
+                         "留空则用 --m-strategy 的第一个策略。E5 给出推荐 m 后用它复跑 E1")
+    ap.add_argument("--e5", dest="e5", action="store_true", default=True,
+                    help="跑 E5：m 策略扫描（ARL/EDD 权衡曲线，默认开）")
+    ap.add_argument("--no-e5", dest="e5", action="store_false", help="跳过 E5")
+    ap.add_argument("--e5-proxies", default="",
+                    help="E5 扫哪些代理（默认沿用 --proxy）")
+    ap.add_argument("--e5-grid", type=int, default=13,
+                    help="分位数主网格的点数（q50→q100，默认 13）")
+    ap.add_argument("--e5-strategies", default="mean,q60,q85,hoeffding,binom,max",
+                    help="曲线上的具名策略标记点（也会用于混合版的 m 替换）")
     ap.add_argument("--edd-horizon", type=int, default=300,
                     help="EDD 视界：只把变点后 H 步内的报警算作检出（0=不限，默认 300）。"
                          "不设视界会把零假设侧的偶发误报记成检出（曾出现「检出率 0.01、EDD 493 步」的假象）")
@@ -636,11 +791,17 @@ def main() -> int:
     # 先按校准段定尺度（避免前视），再做窗口聚合与归一化
     units: Dict[str, np.ndarray] = {}
     calib_idx: Dict[str, int] = {}
-    for p in proxies:
+
+    def build_unit(p: str) -> bool:
+        """构造一个代理的归一化序列（校准段定尺度 → 窗口聚合 → 方向翻正 → 可选二值化）。
+
+        抽成函数是为了让 E5 也能请求 --proxy 之外的代理（早期版本 E5 只认 units 里已有的，
+        于是 `--e5-proxies` 里多写的代理被静默丢掉，报告里少了一整个代理）。
+        """
         raw = series_from_rows(rows, p)
         if raw.size < 20:
             print(f"  [跳过] {p}: 有效样本不足（{raw.size}）")
-            continue
+            return False
         raw = rolling_mean(raw, args.window) if args.window > 1 else raw
         if args.shuffle:
             # 标注集的行序 = v1 批次在前、v2 批次在后，不是时间序；
@@ -662,6 +823,10 @@ def main() -> int:
         print(f"  {p}: 原始 {raw.size} 条 → 均值 {u.mean():.3f}，范围 {u.min():.3f}~{u.max():.3f}"
               f"（尺度按前 {n_calib} 条定{('，已打乱顺序' if args.shuffle else '，按原始行序')}"
               f"{'，已按退化方向翻正' if DEGRADE_DIRECTION.get(p, +1) < 0 else ''}）{extra}")
+        return True
+
+    for p in proxies:
+        build_unit(p)
     if not units:
         print("[错误] 没有可用代理")
         return 1
@@ -731,6 +896,8 @@ def main() -> int:
                               f"EDD均值={rec['edd_mean']:>7.1f} 中位={rec['edd_median']:>6.1f}")
 
     # ---- 实验 3：E1 单指标 vs 多指标混合（联合重采样，配对比较）----
+    e1_ok = False          # E5 的混合扫描要复用 E1 的归一化矩阵与联合流，用它判断是否可用
+    e1_proxies: List[str] = []
     if getattr(args, "e1", True):
         e1_proxies = [p.strip() for p in (args.e1_proxies or "").split(",") if p.strip()]
         e1_proxies = [p for p in e1_proxies if p in DEGRADE_DIRECTION]
@@ -755,6 +922,14 @@ def main() -> int:
                 Xn = (Xn >= args.binarize).astype(float)
             ms_e1 = [max(estimate_m(Xn[:n_calib_e1, k], strategies[0]), args.m_floor)
                      for k in range(Xn.shape[1])]
+            if (args.e1_m or "").strip():
+                # E5 的推荐 m 到手后，用它复跑 E1：验证「Δ 小的时候混合被稀释」到底是方法问题
+                # 还是上界选得太保守（实测很大程度是后者）。
+                manual = [float(x) for x in args.e1_m.split(",") if x.strip()]
+                if len(manual) != len(e1_proxies):
+                    print(f"  [警告] --e1-m 给了 {len(manual)} 个值，但代理有 {len(e1_proxies)} 个，已忽略")
+                else:
+                    ms_e1 = [max(v, args.m_floor) for v in manual]
             pool_e1 = Xn[n_calib_e1:]
             print(f"  各指标上界 m（E1 统一取 --m-strategy 的第一个：{strategies[0]}）：" + "、".join(
                 f"{p}={m:.3f}" for p, m in zip(e1_proxies, ms_e1)))
@@ -767,6 +942,11 @@ def main() -> int:
             lams_e1 = lambda_grid(max(ms_e1))
             # 变前 ARL（同一批联合流）
             streams_e1 = bootstrap_rows(pool_e1, args.reps, args.T, 20, rng_e1)
+            # E5 的混合扫描复用这两个：同一批联合流（配对）+ 同一份注入基底流
+            base_e1 = np.concatenate(
+                [bootstrap_rows(pool_e1, args.reps_edd, 120, 20, rng_e1),
+                 bootstrap_rows(pool_e1, args.reps_edd, args.T, 20, rng_e1)], axis=1)
+            e1_ok = True
             for r in run_e1_arl(streams_e1, ms_e1, lams_e1, args.alpha):
                 idx = r["k"]
                 r.update({"experiment": "e1_arl", "proxy": (e1_proxies[idx] if idx >= 0 else "全指标"),
@@ -804,6 +984,92 @@ def main() -> int:
                     print(f"  Δ={d} {r['fuse']:<12} 检出率={r['detect_rate']:.2f} "
                           f"EDD均值={'—' if em == float('inf') else f'{em:.1f}'}")
 
+    # ---- 实验 4：E5 m 策略扫描（保守性 vs 检测延迟的权衡曲线）----
+    if getattr(args, "e5", True):
+        e5_proxies = [p.strip() for p in (args.e5_proxies or "").split(",") if p.strip()]
+        e5_proxies = [p for p in e5_proxies if p in DEGRADE_DIRECTION] or list(units)
+        for p in e5_proxies:                     # E5 允许请求 --proxy 之外的代理
+            if p not in units:
+                print(f"  [E5] 追加代理 {p}")
+                build_unit(p)
+        e5_proxies = [p for p in e5_proxies if p in units] or list(units)
+        extra = [s.strip() for s in (args.e5_strategies or "").split(",") if s.strip()]
+        scan_deltas = deltas or [0.2]
+        print(f"\n[实验 4/E5] m 扫描：{e5_proxies}｜分位数网格 {args.e5_grid} 点 + "
+              f"具名策略 {extra}｜Δ={scan_deltas}")
+        for p in e5_proxies:
+            # 与 E1 共用同一条序列与同一段校准：E1 走「先归一化再滑窗」（联合矩阵），
+            # 逐代理路径走「先滑窗再归一化」，两条路线的 m 不可比。E1 的代理必须用 E1 的那份，
+            # 否则同一份报告里同一个指标会出现两个 m，读者无法判断「E1 选的 m 落在曲线哪里」。
+            k_e1 = e1_proxies.index(p) if (e1_ok and p in e1_proxies) else -1
+            if k_e1 >= 0:
+                u, n_calib = Xn[:, k_e1], n_calib_e1
+            else:
+                u, n_calib = units[p], calib_idx[p]
+            calib, pool = u[:n_calib], (u[n_calib:] if u.size > n_calib else u)
+            # 变前流与漂移流只重采样一次，各 m 点共用（配对比较，差异只来自 m）
+            null_streams = block_bootstrap(pool, args.reps, args.T, 20, rng)
+            drift_streams = {}
+            for d in scan_deltas:
+                pre = block_bootstrap(pool, args.reps_edd, 120, 20, rng)
+                post = block_bootstrap(pool, args.reps_edd, args.T, 20, rng)
+                drift_streams[d] = inject_drift(np.concatenate([pre, post], axis=1),
+                                                at=120, delta=d,
+                                                # 序列在上游已按退化方向翻正，注入一律为"上升"；
+                                                # 早期版本这里沿用 DEGRADE_DIRECTION，
+                                                # 于是 HHI 的漂移被往**下**打——有界构造只检上升，
+                                                # 整条曲线会假装"任何 m 都无功效"（实测踩过）。
+                                                direction=+1,
+                                                mode=args.inject_mode, rng=rng)
+            points = m_grid_from_calib(calib, extra, args.e5_grid)
+            for r in e5_curve_rows(null_streams, drift_streams, points, ["mix"], args.alpha,
+                                   args.alpha_edd, at=120, horizon=args.edd_horizon,
+                                   m_floor=args.m_floor, pool_mean=float(pool.mean())):
+                r.update({"proxy": p, "m_strategy": r["m_label"], "window": args.window,
+                          "binarize": args.binarize, "mode_strategy": args.m_strategy,
+                          # 记下 E1 当时用的 m，报告里直接把「E1 的点」标在曲线上
+                          "e1_m": (round(float(ms_e1[k_e1]), 4) if k_e1 >= 0 else "")})
+                records.append({k: (round(v, 3) if isinstance(v, float) else v)
+                                for k, v in r.items()})
+            sub = [r for r in records if r.get("experiment") == "e5_curve" and r["proxy"] == p]
+            for r in sub:
+                if r.get("delta") == scan_deltas[0]:
+                    em = r["edd_mean"]
+                    print(f"  {p:<17} m={r['m']:.3f}({r['m_label']:<10}) "
+                          f"合法={'是' if r['m_ge_pool_mean'] else '否'} "
+                          f"变前报警率={r['arl_alarm_rate']:.2f} "
+                          f"检出率={r['detect_rate']:.2f} "
+                          f"EDD={'—' if isinstance(em, str) or em == float('inf') else f'{em:.1f}'}")
+
+        # 混合版本：同一策略下把所有指标的 m 一起换掉——回答「E1 选了 q85，换个策略会怎样」
+        if getattr(args, "e1", True) and e1_ok:
+            ms_by_strategy = []
+            for s in extra:
+                ms_by_strategy.append((s, [max(estimate_m(Xn[:n_calib_e1, k], s), args.m_floor)
+                                           for k in range(Xn.shape[1])]))
+            drift_multi = []
+            for k in range(len(e1_proxies)):
+                for d in scan_deltas:
+                    stream = np.array(base_e1, copy=True)
+                    stream[:, :, k] = inject_drift(stream[:, :, k], at=120, delta=d,
+                                                   direction=+1, mode=args.inject_mode,
+                                                   rng=rng_e1)
+                    drift_multi.append((f"仅指标#{k}", d, stream))
+            print(f"  混合版本（同一策略下换所有指标的 m）："
+                  f"{'、'.join(s for s, _ in ms_by_strategy)}")
+            for r in e5_mix_rows(streams_e1, drift_multi, ms_by_strategy, args.alpha,
+                                 args.alpha_edd, at=120, horizon=args.edd_horizon):
+                r.update({"proxy": "全指标", "window": args.window, "binarize": args.binarize,
+                          "n": int(X.shape[0]), "K": len(e1_proxies)})
+                records.append({k: (round(v, 3) if isinstance(v, float) else v)
+                                for k, v in r.items()})
+                if r.get("drift_target") == "（变前）":
+                    print(f"  {r['m_strategy']:<10} m={r['ms']} 变前报警率={r['arl_alarm_rate']:.2f}")
+                else:
+                    em = r["edd_mean"]
+                    print(f"  {r['m_strategy']:<10} 漂移={r['drift_target']} Δ={r['delta']} "
+                          f"检出率={r['detect_rate']:.2f} "
+                          f"EDD={'—' if isinstance(em, str) or em == float('inf') else f'{em:.1f}'}")
     # ---- 输出 ----
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_csv = os.path.join(RESULTS_DIR, f"edetector_{stamp}.csv")
@@ -1085,6 +1351,114 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
                     + "；".join(parts) + "。"
                     "单指标一旦「打偏」不是变慢，而是像没装一样失效（检出率 0.00）；"
                     "混合只需其中**任意一个**指标被漂移触及即可报警，所以对漂移类型不敏感。")
+    # 五、E5：m 策略扫描
+    e5_curve = [r for r in records if r.get("experiment") == "e5_curve"]
+    e5_mix = [r for r in records if r.get("experiment") == "e5_mix"]
+    if e5_curve or e5_mix:
+        lines += ["", "## 五、E5：m 的保守性与检测延迟（权衡曲线）", "",
+                  "> m 是整套方法里**唯一需要人为估计**的量：合法性只要求变前 μ ≤ m，"
+                  "但 m 越保守，报警越慢（甚至永不报警）。曲线把这件事量化：",
+                  "> 横轴是 m（从校准段 q50 扫到 q100），具名策略是曲线上的标记点；"
+                  "同一 m 下的变前流与漂移流在各点间**共用**，所以点与点的差异只来自 m。"]
+        if e5_curve:
+            for p_ in dict.fromkeys(r["proxy"] for r in e5_curve):
+                sub = [r for r in e5_curve if r["proxy"] == p_]
+                d0 = min(r["delta"] for r in sub)
+                sub = sorted([r for r in sub if r["delta"] == d0], key=lambda x: x["m"])
+                pm = sub[0].get("pool_mean", "")
+                lines += ["", f"### {p_}（Δ={d0}，变前均值 {pm}）", "",
+                          "| m 点 | m | 合法（m ≥ 变前均值） | 变前报警率@α | 变前报警率@α_edd | 检出率 | EDD 均值 |",
+                          "|---|---|---|---|---|---|---|"]
+                for r in sub:
+                    em = r["edd_mean"]
+                    # 变前就大量报警时，「检出率」只是少数没在变点前触发的幸运流，
+                    # 数字不可读——必须标出来，否则会被误当成「检出了」。
+                    noisy = float(r["arl_alarm_rate"]) >= 0.5
+                    lines.append(f"| {r['m_label']} | {r['m']:.3f} | "
+                                 f"{'是' if r['m_ge_pool_mean'] else '否（保证不适用）'} | "
+                                 f"{r['arl_alarm_rate']:.2f}"
+                                 f"{'（误报过高，功效列不可读）' if noisy else ''} | "
+                                 f"{_num(r.get('arl_alarm_rate_op'))} | "
+                                 f"{r['detect_rate']:.2f} | "
+                                 f"{'—' if is_inf(em) else f'{float(em):.1f}'} |")
+                # 只保留「合法」的点做取舍讨论：不合法的点误报率不可比。
+                # 误报率按**实际运行的那条报警线**（α_edd）判，工程上容忍 5% 的余量；
+                # 用 α=0.05 那条阈值会把可选区间压得过窄（拒答代理会整段被判成不可用）。
+                legal = [r for r in sub if r.get("m_ge_pool_mean")]
+                usable = [r for r in legal
+                          if r["detect_rate"] >= 0.5 and not is_inf(r["edd_mean"])
+                          and float(r.get("arl_alarm_rate_op", 1.0)) <= 0.05]
+                if usable:
+                    best = min(usable, key=lambda r: float(r["edd_mean"]))
+                    least = max(usable, key=lambda r: float(r["edd_mean"]))
+                    lines.append(
+                        f"- 可用的合法区间：m ∈ [{min(r['m'] for r in usable):.3f}, "
+                        f"{max(r['m'] for r in usable):.3f}]；最快 {best['m_label']}"
+                        f"（m={best['m']:.3f}，EDD {float(best['edd_mean']):.1f} 步）"
+                        f"到最慢 {least['m_label']}（m={least['m']:.3f}，"
+                        f"EDD {float(least['edd_mean']):.1f} 步）——"
+                        f"**EDD 相差 {float(least['edd_mean']) / float(best['edd_mean']):.1f} 倍**。")
+                else:
+                    lines.append("- 本次扫描里**没有既合法又能在视界内检出的点**："
+                                 "上界要么违反 μ ≤ m，要么保守到检不出——这就是 E5 要暴露的窄区间。")
+                # E1 当时用的那个 m 落在曲线哪里？以及按规则推荐的更紧的点
+                e1m = next((r for r in sub if r.get("e1_m") not in ("", None)
+                            and abs(float(r["m"]) - float(r["e1_m"])) < 1e-9
+                            and r["m_label"] not in ("q50",)), None)
+                if e1m is not None:
+                    em = e1m["edd_mean"]
+                    lines.append(
+                        f"- **E1 当时用的点**：{e1m['m_label']}（m={e1m['m']:.3f}）→ "
+                        f"检出率 {e1m['detect_rate']:.2f}、"
+                        f"EDD {'未检出' if is_inf(em) else f'{float(em):.1f} 步'}。")
+                tight = [r for r in legal
+                         if float(r.get("arl_alarm_rate_op", 1.0)) <= 0.05
+                         and r["detect_rate"] >= 0.9 and not is_inf(r["edd_mean"])]
+                if tight:
+                    rec = min(tight, key=lambda r: r["m"])
+                    em = float(rec["edd_mean"])
+                    cmp_txt = ""
+                    if e1m is not None and not is_inf(e1m["edd_mean"]):
+                        cmp_txt = (f"，比 E1 的点快 "
+                                   f"{float(e1m['edd_mean']) / em:.1f} 倍")
+                    lines.append(
+                        f"- **推荐点**（规则：合法点里取「变前报警率@α_edd ≤ 0.05 且检出率 ≥ 0.9」的"
+                        f"**最小** m）：{rec['m_label']}（m={rec['m']:.3f}）→ "
+                        f"检出率 {rec['detect_rate']:.2f}、EDD {em:.1f} 步{cmp_txt}。")
+                lines.append(
+                    "- ⚠️ 选点的口径提醒：这里的推荐点是**在同一批模拟流上**挑出来的，"
+                    "实际部署应把「挑 m」放在独立的校准样本上（同一规则），否则推荐值会偏乐观。")
+        if e5_mix:
+            lines += ["", "### 混合检测器：整体换 m 策略", "",
+                      "| m 策略 | 各指标 m | Δ | 漂移目标 | 变前报警率 | 检出率 | EDD 均值 |",
+                      "|---|---|---|---|---|---|---|"]
+            for r in sorted(e5_mix, key=lambda x: (x["m_strategy"], str(x.get("drift_target")))):
+                em = r.get("edd_mean", float("inf"))
+                arl_rate = r.get("arl_alarm_rate")
+                noisy = (arl_rate not in (None, "")) and float(arl_rate) >= 0.5
+                dr = ("—" if r.get("drift_target") == "（变前）"
+                      else (f"{float(r['detect_rate']):.2f}"
+                            + ("（误报过高，不可读）" if noisy else "")))
+                lines.append(f"| {r['m_strategy']} | {r.get('ms', '')} | {r.get('delta', '')} | "
+                             f"{r.get('drift_target', '')} | {_num(arl_rate)} | "
+                             f"{dr} | {'—' if is_inf(em) else f'{float(em):.1f}'} |")
+            lines += ["",
+                      "> 读法：变前报警率那一行是**误报侧**（越小越安全），检出率/EDD 是**功效侧**；"
+                      "误报率接近 1 的策略（mean/q60 这类在短校准段上会跌破均值的估计）"
+                      "其功效列没有意义，已标注「误报过高，不可读」。",
+                      "> 口径提醒：混合版的 m 由**同一个策略名**逐指标计算，"
+                      "只要有一个指标的 m 违反 μ ≤ m，整个混合的误报就会失控——"
+                      "这与 E1 里「以最激进的指标为准」的观察一致。"]
+            lines += ["",
+                      "**选 m 的工程规则（本次数据）**：",
+                      "1. 先做合法性检查：m 必须 ≥ 变前均值（本报告每行都标了），"
+                      "分位数估计在稀有事件上会跌破均值，**不能盲用 qNN**；",
+                      "2. 稀有事件先做窗口聚合（`--window 20`）再用分位数，或直接用 `binom` "
+                      "（Clopper–Pearson 上界，紧且合法）；",
+                      "3. 在合法点里挑 EDD 曲线**开始变平的位置**——继续加大 m 只会更慢、"
+                      "误报却已经很低，边际收益为零；",
+                      "4. 变前报警率不是 0 才能说明保证在起作用：全 0 意味着上界过松、"
+                      "检测器没分辨率（此时应先收紧 m 再谈功效）。"]
     lines += [
         "",
         f"- 示例轨迹（可直接画图，已含阈值/变点/报警步数列）：`{os.path.basename(series_csv)}`；"

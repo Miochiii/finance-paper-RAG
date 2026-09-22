@@ -16,6 +16,7 @@
 import argparse
 import csv
 import glob
+import math
 import os
 import sys
 
@@ -30,9 +31,11 @@ FIGS_DIR = os.path.join(RESULTS_DIR, "figs")
 # 默认数据源**固定**为报告引用的那次运行：results/ 下还有许多「参数探针」跑批，
 # 按时间取最新会拿到缺 E1 行的探针结果（曾导致对照矩阵全 0、EDD 为 inf 而崩）。
 # 要画别的运行用 --e1-csv / --series-csv / --validity-csv 覆盖。
-E1_CSV = "edetector_20260921_1955.csv"
+E1_CSV = "edetector_20260922_2024.csv"        # E1 主口径：用 E5 推荐 m 复跑的那次
+E1_Q85_CSV = "edetector_20260921_1955.csv"    # 旧口径（各指标统一 q85），用于对比 m 的影响
 SERIES_CSV = "edetector_series_20260921_1955.csv"
 VALIDITY_CSV = "proxy_validity_hmm_20260921_1928.csv"
+E5_CSV = "edetector_20260922_2023.csv"        # E5 扫描结果（含 e5_curve / e5_mix 行）
 
 # ---- 配色（色盲友好的深浅对比）----
 BG = (255, 255, 255)
@@ -320,9 +323,18 @@ def fig1_matrix(root=FIGS_DIR):
             c.text((bx0 + bx1) / 2, by0 + 56, etxt, size=18,
                    color=MUTED if edd == float("inf") else INK, anchor="ma")
     # 结论区
+    # 结论里的百分比按数据算，避免改了 m 之后文字与图不一致（踩过）
+    ratios = []
+    for i in range(3):
+        e_s = e1.get((rows[i][0], cols[i][0], delta), (0, float("inf")))[1]
+        e_m = e1.get(("全指标混合", cols[i][0], delta), (0, float("inf")))[1]
+        if e_s not in (0, float("inf")) and e_m != float("inf"):
+            ratios.append(e_m / e_s)
+    cost = (f"慢 {100 * (min(ratios) - 1):.0f}%–{100 * (max(ratios) - 1):.0f}%"
+            if ratios else "略慢")
     c.rect(60, 660, 1260, 740, fill=(232, 245, 233), outline=GOOD, width=2)
-    c.text(80, 676, "只盯一个指标：3/9 组合检出（只有对角线）；三指标凸混合：3/3 全部检出，"
-                    "代价是比「事先知道打在哪」的理想单指标慢 11%–25%",
+    c.text(80, 676, f"只盯一个指标：3/9 组合检出（只有对角线）；三指标凸混合：3/3 全部检出，"
+                    f"代价是比「事先知道打在哪」的理想单指标{cost}",
            size=20, color=INK)
     out = os.path.join(root, "fig1_e1_matrix.png")
     c.save(out)
@@ -332,7 +344,8 @@ def fig1_matrix(root=FIGS_DIR):
 # --------------------------------------------------------------------------
 # 图 2：原始指标 vs 累积统计量
 # --------------------------------------------------------------------------
-def fig2_trajectory(root=FIGS_DIR, proxy="ret_doc_hhi", delta=0.15, n_streams=5, T_post=300):
+def fig2_trajectory(root=FIGS_DIR, proxy="ret_doc_hhi", delta=0.15, n_streams=5, T_post=300,
+                    m_override: float = 0.441):
     """现场按 E1 的口径模拟一条轨迹：指标原始曲线 vs 累积统计量。
 
     直接用 edetector 的构件（校准段定尺度 → 退化方向翻正 → 20 步滑窗 → q85 上界 →
@@ -354,7 +367,8 @@ def fig2_trajectory(root=FIGS_DIR, proxy="ret_doc_hhi", delta=0.15, n_streams=5,
     if ed.DEGRADE_DIRECTION.get(proxy, +1) < 0:      # 翻正：越高越差
         u = 1.0 - u
     u = ed.rolling_mean(u, 20)
-    m = max(ed.estimate_m(u[:n_calib], "q85"), 0.05)
+    # 上界取 E5 曲线给出的推荐点（q85 在这条序列上过于保守，Δ 小时根本检不出）
+    m = float(m_override) if m_override else max(ed.estimate_m(u[:n_calib], "q85"), 0.05)
     pool = u[n_calib:]
     lams = ed.lambda_grid(m)
     thr = 1000.0
@@ -505,16 +519,18 @@ def fig4_validity(root=FIGS_DIR):
 # 图 5：延迟代价 与 弱漂移下的稀释
 # --------------------------------------------------------------------------
 def fig5_cost_dilution(root=FIGS_DIR):
-    """左：融合带来的延迟代价；右：弱漂移下的稀释。
+    """左：融合带来的延迟代价（Δ=0.4）；右：m 选得太保守会损失多少检出力。
 
-    坐标范围留出左右边距（xlim 不是 (0,3)），否则第 3 簇柱子正好落在坐标框右边界上、
-    连同数值标签一起被画到框外——这是上一版的版式 bug。
+    右panel 原来是「弱漂移下的稀释」，但 E5 查出来那其实是 **m 取 q85 太保守**造成的
+    ——换成推荐 m 后 Δ=0.2 三种漂移也都 1.00 检出。所以这一栏改成
+    「旧口径 q85 vs 推荐 m」的直接对比，把那个结论更正过来。
     """
     e1, src = load_e1_edd()
+    e1_old, _ = load_e1_edd(os.path.join(RESULTS_DIR, E1_Q85_CSV))
     c = Canvas(1400, 900)
-    c.text(60, 44, "融合的两面：代价很小，但弱漂移时会互相拖累", size=34, bold=True)
-    c.text(60, 100, "左：Δ=0.4 时的报警延迟（越短越好）　右：Δ=0.2 时的检出率（变点后 300 步内）",
-           size=19, color=MUTED)
+    c.text(60, 44, "融合的代价很小；真正拖后腿的是上界 m 选得太保守", size=34, bold=True)
+    c.text(60, 100, "左：Δ=0.4 时的报警延迟（越短越好）　右：Δ=0.2 时的检出率，"
+                    "旧口径 q85 vs E5 推荐 m", size=19, color=MUTED)
     diag = ["单指标#0", "单指标#1", "单指标#2"]
     labs = ["拒答", "集中度", "分散度"]
 
@@ -536,43 +552,142 @@ def fig5_cost_dilution(root=FIGS_DIR):
         c.text(p1.px(i + 1), p1.py(edd_m) - 58, f"+{100 * (edd_m / edd_s - 1):.0f}%", size=18,
                color=ORANGE, anchor="ma")
     c.rect(150, 676, 680, 744, fill=(232, 245, 233), outline=GOOD, width=2)
-    c.text(168, 688, "融合只慢 11%–25%（灰=单指标，蓝=凸混合）", size=19, color=INK)
+    c.text(168, 688, "融合只慢 12%–20%（灰=盯对指标的单指标，蓝=凸混合）", size=19, color=INK)
     c.text(168, 716, "换来的是「漂移类型未知」时仍然能报警的兜底能力。", size=19, color=INK)
 
-    # --- 右：弱漂移下的稀释 ---
-    p2 = Panel(c, (860, 250, 1330, 620), (-0.4, 3.4), (0, 1.22), title="", ylabel="检出率")
+    # --- 右：m 的影响（旧口径 q85 vs 推荐 m）---
+    p2 = Panel(c, (860, 250, 1330, 620), (-0.4, 3.4), (0, 1.22), title="", ylabel="检出率（Δ=0.2）")
     p2.grid([0, 0.25, 0.5, 0.75, 1.0], [1, 2, 3], xlabels=labs,
             ylabels=["0", "0.25", "0.5", "0.75", "1.0"])
-    c.text(860, 206, "② 弱漂移下的检出率（Δ=0.2）", size=22, bold=True)
+    c.text(860, 206, "② 弱漂移下的检出率：m 取 q85 的代价", size=22, bold=True)
     for i in range(3):
-        vals = [(e1.get((diag[i], f"仅指标#{i}", 0.2), (0, 0))[0], GRAY),
-                (e1.get(("全指标混合", f"仅指标#{i}", 0.2), (0, 0))[0], BLUE),
-                (e1.get(("全指标取最大", f"仅指标#{i}", 0.2), (0, 0))[0], ORANGE)]
-        w = 0.25
-        for k, (v, col) in enumerate(vals):
-            x = i + 1 + (k - 1) * w
+        old = e1_old.get(("全指标混合", f"仅指标#{i}", 0.2), (0, 0))[0]
+        new = e1.get(("全指标混合", f"仅指标#{i}", 0.2), (0, 0))[0]
+        w = 0.3
+        for k, (v, col) in enumerate(((old, BAD), (new, GOOD))):
+            x = i + 1 + (k - 0.5) * w
             c.rect(p2.px(x - w / 2), p2.py(v), p2.px(x + w / 2), p2.py(0), fill=col)
-            c.text(p2.px(x), p2.py(v) - 24, f"{v:.2f}", size=15, bold=True, color=col, anchor="ma")
+            c.text(p2.px(x), p2.py(v) - 24, f"{v:.2f}", size=16, bold=True, color=col, anchor="ma")
     lx, ly = 860, 648
-    for col, lab in ((GRAY, "盯对指标的单指标"), (BLUE, "三指标凸混合"), (ORANGE, "取最大（不合法）")):
+    for col, lab in ((BAD, "旧口径：各指标统一 q85"), (GOOD, "E5 推荐 m（逐指标）")):
         c.rect(lx, ly, lx + 28, ly + 18, fill=col)
         c.text(lx + 36, ly - 2, lab, size=17)
-        lx += 190
-    c.rect(860, 690, 1330, 790, fill=(255, 235, 238), outline=BAD, width=2)
-    c.text(878, 702, "集中度那一列：单指标 0.26、混合 0.15、取最大 0.44", size=18, color=BAD)
-    c.text(878, 728, "漂移太小时，不敏感的指标会稀释混合统计量，", size=18, color=MUTED)
-    c.text(878, 754, "这是融合的代价，如实报告。", size=18, color=MUTED)
+        lx += 250
+    c.rect(860, 690, 1330, 790, fill=(232, 245, 233), outline=GOOD, width=2)
+    c.text(878, 702, "集中度那一列：检出率 0.15 → 1.00", size=18, color=INK)
+    c.text(878, 728, "EDD 213 → 37 步；原先报告的「弱漂移下融合被稀释」", size=18, color=MUTED)
+    c.text(878, 754, "其实是 m 过保守——E5 把它查了出来。", size=18, color=MUTED)
     c.rect(150, 812, 1330, 878, fill=(245, 248, 251), outline=GRID, width=2)
-    c.text(168, 824, "读图：Δ 够大（0.4）时，融合几乎不掉链子、三种漂移全部检出；"
-                     "Δ 很小（0.2）时集中度那一列三者都不可靠。", size=19)
-    c.text(168, 852, "结论：融合买到的是兜底，不是免费加速——所以论文里要把这个代价写清楚，"
-                     "并用权重设计（E3）去缓解。", size=19, color=MUTED)
+    c.text(168, 824, "读图：m 按 E5 曲线逐指标选（合法点里最紧的那个）之后，"
+                     "Δ=0.2 和 Δ=0.4 都是「单指标 3/9、混合 3/3」。", size=19)
+    c.text(168, 852, "结论：融合的代价只是慢一成多；影响结论的主因是上界选择——"
+                     "这也是本文的方法学贡献点之一。", size=19, color=MUTED)
     out = os.path.join(root, "fig5_cost_and_dilution.png")
     c.save(out)
     return out, src
 
+def is_inf_s(v) -> bool:
+    """与 edetector.is_inf 同义（这里独立实现，避免为一个判断引入模块依赖）。"""
+    if isinstance(v, str):
+        return v.strip().lower() in ("", "inf", "infinity", "nan", "none")
+    try:
+        return not math.isfinite(float(v))
+    except (TypeError, ValueError):
+        return True
+
+
+def _load_e5(pinned: str, experiment: str):
+    """读 E5 扫描结果（experiment=e5_curve / e5_mix）。"""
+    path = pick(pinned, "edetector_2*.csv", "experiment", (experiment,))
+    rows = []
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        for r in csv.DictReader(f):
+            if r.get("experiment") == experiment:
+                rows.append(r)
+    if not rows:
+        raise ValueError(f"{path} 里没有 {experiment} 结果行，请用 --e5-csv 指定")
+    return rows
+
+
+def fig6_m_tradeoff(root=FIGS_DIR):
+    """E5：m 的保守性与检测延迟的权衡曲线（每个代理一个面板）。
+
+    横轴 m、纵轴 EDD；点色表示**在实际报警线（α_edd）下**的变前误报率——
+    绿 ≤0.05（可用）、橙 ≤0.5、红 >0.5（功效列不可读）。竖直红线是合法性边界（变前均值），
+    紫色虚线是 E1 当时用的 m，绿圈是按规则选出的推荐点。
+    """
+    rows = _load_e5(E5_CSV, "e5_curve")
+    proxies = list(dict.fromkeys(r["proxy"] for r in rows))
+    delta = "0.2"
+    c = Canvas(1520, 880)
+    c.text(60, 40, "m 选得越保守，报警越慢：E1 的 m 该落在哪里", size=34, bold=True)
+    c.text(60, 96, f"E5：按校准段分位数扫 m（Δ={delta}、α_edd=1e-3、报警线 1000）；"
+                   f"点色＝实际报警线下的变前误报率（绿 ≤0.05、橙 ≤0.5、红 >0.5）",
+           size=19, color=MUTED)
+    panel_w, gap, x0 = 440, 40, 130
+    for k, p_ in enumerate(proxies):
+        sub = sorted([r for r in rows if r["proxy"] == p_ and r["delta"] == delta],
+                     key=lambda r: float(r["m"]))
+        if not sub:
+            continue
+        bx0 = x0 + k * (panel_w + gap)
+        box = (bx0, 250, bx0 + panel_w - 40, 650)
+        ms = [float(r["m"]) for r in sub]
+        pm = float(sub[0]["pool_mean"])
+        # 纵轴用**截尾 EDD**：未检出的流按视界计入。用「只统计检出的流」的 EDD 均值，
+        # 尾部会因为这些流只检出 1% 而假性下降，曲线形状会被误读（这一点在 E1 也踩过）。
+        def _ey(r):
+            v = r.get("edd_censored")
+            return float(v) if (v not in ("", None) and not is_inf_s(v)) else 310.0
+        ymax = 320.0
+        mlo, mhi = min(ms + [pm]), max(ms + [pm])
+        pad = max(0.008, (mhi - mlo) * 0.08)
+        pan = Panel(c, box, (mlo - pad, mhi + pad), (0, ymax), title="", ylabel="EDD（步）")
+        pan.grid([0, ymax / 4, ymax / 2, 3 * ymax / 4, ymax], [],
+                 ylabels=[f"{v:.0f}" for v in (0, ymax / 4, ymax / 2, 3 * ymax / 4, ymax)])
+        if pm > mlo - pad:
+            c.rect(pan.px(mlo - pad), pan.y0, pan.px(pm), pan.y1, fill=(255, 235, 238))
+            c.line([(pan.px(pm), pan.y0), (pan.px(pm), pan.y1)], color=BAD, width=2, dash=8)
+            c.text(pan.px(pm) + 6, pan.y0 + 8, "合法性边界\nm = 变前均值", size=15, color=BAD)
+        pts = [(pan.px(float(r["m"])), pan.py(_ey(r))) for r in sub]
+        if len(pts) >= 2:
+            c.line(pts, color=BLUE, width=3)
+        for r in sub:
+            ar = float(r["arl_alarm_rate_op"])
+            col = GOOD if ar <= 0.05 else (ORANGE if ar <= 0.5 else BAD)
+            det = float(r["detect_rate"])
+            # 检出率不足 0.9 的点加个空心圈：它们是「报得早但常常报不出来」，不能算好点
+            c.circle(pan.px(float(r["m"])), pan.py(_ey(r)), 7, fill=col,
+                     outline=(INK if det < 0.9 else None), width=2)
+        e1m = next((float(r["e1_m"]) for r in sub if r.get("e1_m") not in ("", None)), None)
+        if e1m is not None:
+            c.line([(pan.px(e1m), pan.y0), (pan.px(e1m), pan.y1)], color=PURPLE, width=2, dash=6)
+            c.text(pan.px(e1m) - 6, pan.y0 + 8, "E1 用的 m", size=15, color=PURPLE, anchor="ra")
+        ok = [(float(r["m"]), _ey(r)) for r in sub
+              if float(r["arl_alarm_rate_op"]) <= 0.05 and float(r["detect_rate"]) >= 0.9]
+        if ok:
+            rm, re_ = min(ok)
+            c.circle(pan.px(rm), pan.py(re_), 11, fill=None, outline=GOOD, width=4)
+            dy = 22 if re_ > ymax * 0.5 else -30
+            c.text(pan.px(rm), pan.py(re_) + dy, f"推荐 m={rm:.3f}", size=16, color=GOOD, anchor="ma")
+        c.text(bx0, 206, PROXY_CN.get(p_, p_), size=23, bold=True)
+        c.text(bx0, 672, f"变前均值 {pm:.3f}", size=17, color=MUTED)
+    c.text(60, 716, "读法：越往右 m 越保守——误报更少，但 EDD 单调变长，到某个点后直接贴住视界"
+                     "（300 步内检不出）。纵轴是截尾 EDD，未检出的流按视界计入。", size=20)
+    c.text(60, 750, "所以选 m 不是「越大越安全」，而是在合法区间里挑最紧的那一个："
+                    "绿点里最靠左、检出率仍 ≥ 0.9 的点（黑圈点＝检出率 < 0.9，不算）。", size=20)
+    c.rect(60, 792, 1460, 850, fill=(237, 231, 246), outline=PURPLE, width=2)
+    c.text(80, 804, "本次结论：E1 原先按惯例取 q85，对两个连续型指标都过于保守——"
+                    "换成推荐 m 后 Δ=0.2 的检出率从 0.26/0.89 提到 1.00/1.00，", size=18)
+    c.text(80, 830, "EDD 从 210/141 步降到 33/34 步；拒答指标的 m 本身已经是最优点。",
+           size=18)
+    out = os.path.join(root, "fig6_m_tradeoff.png")
+    c.save(out)
+    return out, os.path.basename(E5_CSV)
+
+
 FIGURES = {"fig1": fig1_matrix, "fig2": fig2_trajectory, "fig3": fig3_false_alarm,
-           "fig4": fig4_validity, "fig5": fig5_cost_dilution}
+           "fig4": fig4_validity, "fig5": fig5_cost_dilution, "fig6": fig6_m_tradeoff}
 
 
 def main() -> int:

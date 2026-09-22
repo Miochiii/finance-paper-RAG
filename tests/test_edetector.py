@@ -307,6 +307,58 @@ class TestE1MultiIndicator:
         assert by_fuse[("全指标混合", tgt)]["detect_rate"] > 0
 
 
+class TestE5MScan:
+    """E5：m 策略扫描（权衡曲线）的纯函数。"""
+
+    def test_m_grid_sorted_and_named_strategies_included(self):
+        calib = np.linspace(0.05, 0.45, 40)
+        pts = ed.m_grid_from_calib(calib, ["mean", "max"], n_grid=5)
+        assert pts and pts[0][1] <= pts[-1][1]                      # 按 m 升序
+        labels = [p[0] for p in pts]
+        assert "mean" in labels and "max" in labels
+        assert any(lab.startswith("q") for lab in labels)
+        assert len({round(m, 9) for _, m in pts}) == len(pts)        # 同值只留一个标签
+
+    def test_m_grid_prefers_named_label_on_tie(self):
+        calib = np.array([0.1, 0.2, 0.3, 0.4])                       # max == q100
+        pts = dict((round(m, 9), lab) for lab, m in ed.m_grid_from_calib(calib, ["max"], 5))
+        assert pts[round(0.4, 9)] == "max"
+
+    def test_e5_curve_rows_detects_and_flags_validity(self):
+        null = np.full((20, 50), 0.1)
+        drift = np.full((20, 60), 0.1)
+        drift[:, 10:] = 0.9                                          # 变点后明显变差
+        rows = ed.e5_curve_rows(null, {0.5: drift},
+                               [("mean", 0.2), ("max", 0.5)], ["mix"],
+                               alpha=0.05, alpha_edd=0.1, at=10, horizon=20, pool_mean=0.1)
+        assert len(rows) == 2 and all(r["experiment"] == "e5_curve" for r in rows)
+        for r in rows:
+            assert r["m_ge_pool_mean"] == 1
+            assert r["arl_alarm_rate"] == 0.0        # 变前恒为 0.1 ≤ m → 永不报警
+            assert r["detect_rate"] == 1.0
+        small = next(r for r in rows if r["m_label"] == "mean")
+        big = next(r for r in rows if r["m_label"] == "max")
+        assert small["edd_mean"] <= big["edd_mean"]  # m 越保守，报警越慢
+
+    def test_e5_curve_rows_marks_invalid_m(self):
+        null = np.full((10, 40), 0.3)
+        rows = ed.e5_curve_rows(null, {}, [("mean", 0.2)], ["mix"],
+                                alpha=0.05, alpha_edd=0.1, at=10, pool_mean=0.3)
+        assert rows[0]["m_ge_pool_mean"] == 0        # m < 变前均值 → 保证不适用
+
+    def test_e5_mix_rows_reports_arl_and_per_target(self):
+        null = np.full((20, 50, 2), 0.1)
+        drift = np.full((20, 60, 2), 0.1)
+        drift[:, 10:, 1] = 0.9                       # 只打第 2 个指标
+        rows = ed.e5_mix_rows(null, [("仅指标#1", 0.5, drift)], [("mean", [0.2, 0.2])],
+                              alpha=0.05, alpha_edd=0.1, at=10, horizon=20)
+        assert len(rows) == 2
+        arl = next(r for r in rows if r["drift_target"] == "（变前）")
+        edd = next(r for r in rows if r["drift_target"] == "仅指标#1")
+        assert arl["arl_alarm_rate"] == 0.0 and arl["ms"] == "0.200、0.200"
+        assert edd["detect_rate"] == 1.0 and edd["fuse"] == "全指标混合"
+
+
 class TestSimulation:
     def test_block_bootstrap_shape(self):
         rng = np.random.default_rng(5)
