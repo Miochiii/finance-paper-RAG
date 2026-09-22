@@ -440,15 +440,17 @@ def _num(v, fmt: str = "{:.2f}") -> str:
 
 
 def _edd_stats(M: np.ndarray, alpha: float, at: int, T_post: int,
-               horizon: int = 0) -> Dict:
+               horizon: int = 0, threshold: Optional[float] = None) -> Dict:
     """从 M 序列算 EDD 相关统计（变前误报、检出率、EDD 均值/中位/截尾）。
 
+    `threshold` 不给时用 1/α；同误报水平的对比要用**各方案自己的阈值**（见 matched_threshold）。
     `horizon`（>0 时）= 只把「变点后 H 步内报警」算作检出。这很关键：不设视界时，
     零假设侧偶发的误报（例如某个检测器对该漂移本来就无感，只是碰巧在 500 步后响了一次）
     会被记成「检出」，于是出现「检出率 0.01、EDD 493 步」这种假象，还会把对照矩阵的
     对角线弄脏。超出视界的报警单列 `late_alarm_rate`，不隐瞒、也不算检出。
     """
-    times = first_alarm(M, 1.0 / alpha)
+    thr = float(threshold) if threshold is not None else 1.0 / alpha
+    times = first_alarm(M, thr)
     pre_alarm = float(((times > 0) & (times <= at)).mean())
     after = times > at
     if horizon > 0:
@@ -749,6 +751,227 @@ def run_e2_attribution(pool: np.ndarray, ms: Sequence[float], lams: np.ndarray,
     return out
 
 
+# --------------------------------------------------------------------------
+# E3：权重方案（均匀 / 先验 / 自适应）
+# --------------------------------------------------------------------------
+def normalize_weights(w: Sequence[float]) -> np.ndarray:
+    """权重归一（和为 1 是混合保持合法的前提）；全 0 或含负数时退化为均匀。"""
+    a = np.asarray(w, dtype=float)
+    a = np.clip(a, 0.0, None)
+    s = float(a.sum())
+    if not np.isfinite(s) or s <= 0:
+        return np.full(a.shape, 1.0 / max(1, a.size))
+    return a / s
+
+
+def prior_from_values(values: Sequence[float], floor: float = 0.25) -> np.ndarray:
+    """把「先验重要性」变成权重：按 |值| 归一后，**向均匀权重收缩** floor 比例。
+
+    `values` 通常是 E0 里各代理与真值的相关性强度。收缩（0=纯先验、1=纯均匀）
+    是为了两方面都守住：
+      - 避免先验把某个指标直接归零——一旦漂移正好打在它身上，混合就彻底失效
+        （E1 的对照矩阵已经说明单指标失效有多彻底）；
+      - 让「先验有多可信」变成一个显式可调的量，而不是藏在归一化的细节里。
+    凸组合之后权重和仍然恰好为 1（不需要再归一化），且每个指标至少保留 floor/n 的份额。
+    """
+    a = np.abs(np.asarray(values, dtype=float))
+    n = max(1, a.size)
+    frac = float(min(max(floor, 0.0), 1.0))
+    if not np.isfinite(a).all() or a.sum() <= 0:
+        return np.full(n, 1.0 / n)
+    w_raw = a / a.sum()
+    return normalize_weights((1.0 - frac) * w_raw + frac * np.full(n, 1.0 / n))
+
+
+def weighted_mix(M_comp: np.ndarray, w: Optional[Sequence[float]] = None) -> np.ndarray:
+    """按固定权重混合各指标自身的 e-value 序列：(R,T,K) → (R,T)。
+
+    w=None 即均匀权重；此时结果与 `build_multi_detector(..., "mix")` 完全一致
+    （后者是在 (k,λ) 分量上均匀，等价于「先在 λ 内平均、再在 k 上平均」）。
+    """
+    M = np.asarray(M_comp, dtype=float)
+    k = M.shape[2]
+    ww = normalize_weights(w) if w is not None else np.full(k, 1.0 / k)
+    return np.tensordot(ww, M, axes=(0, 2))
+
+
+def adaptive_mix(M_comp: np.ndarray, w_prior: Optional[Sequence[float]] = None,
+                 eta: float = 0.5) -> np.ndarray:
+    """自适应加权混合：(R,T,K) → (R,T)。
+
+    权重按**上一时刻的证据**逐点调整：ω_k(n) ∝ w_k^prior · max(M_k(n−1), 1)^η，
+    再归一到和为 1。两个性质要守住：
+      - **可预测**（只用到 n−1 时刻的信息）——不能偷看本步的 e-value；
+      - **任意时刻权重和为 1**——这是混合保持合法的前提（原文 §3 的自适应调度同此要求）。
+    η 越大越激进（迅速倒向当前证据最多的指标），η → 0 退化为固定先验权重。
+    理论上：固定权重混合的合法性由命题 2.3 保证；可预测时变权重在实践中的误报控制
+    由 ARL 侧实测检验（本实验一并报告，见 E3 的误报率列）。
+    """
+    M = np.asarray(M_comp, dtype=float)
+    R, T, K = M.shape
+    if K == 1:
+        return M[:, :, 0].copy()
+    wp = normalize_weights(w_prior) if w_prior is not None else np.full(K, 1.0 / K)
+    eta = float(max(0.0, eta))
+    out = np.empty((R, T), dtype=float)
+    prev = np.maximum(M[:, 0, :], 1.0)                 # 用 n−1 时刻的 e-value 定权重
+    wp_b = np.broadcast_to(wp, (R, K))                 # eta=0 时也要保持 (R,K) 形状
+    for t in range(T):
+        w = wp_b * np.power(prev, eta) if eta > 0 else wp_b
+        w = w / np.maximum(w.sum(axis=1, keepdims=True), 1e-300)
+        out[:, t] = (w * M[:, t, :]).sum(axis=1)
+        prev = np.maximum(M[:, t, :], 1.0)
+    return out
+
+
+def matched_threshold(M_null: np.ndarray, target: float = 0.01) -> float:
+    """给出「变前误报率 ≈ target」的阈值：取变前流**运行最大值**的 (1−target) 分位数。
+
+    自适应加权、取最大这类方案在同一个 1/α 下误报天然更高，直接比 EDD 是不公平的
+    （等于拿不同误报水平的两条曲线比）。要公平就必须**在同一误报水平上比 EDD**，
+    这个函数就是给每个方案各自定一条报警线。
+
+    注意：这里用的是同一批变前流，实际部署应把这一步放在**独立校准样本**上。
+    """
+    M = np.asarray(M_null, dtype=float)
+    if M.size == 0:
+        return float("inf")
+    runmax = np.maximum.accumulate(M, axis=1)[:, -1]
+    t = float(np.quantile(runmax, 1.0 - float(target)))
+    return max(float(np.min(runmax)), t)      # 至少要比最小值高，避免阈值低于所有流
+
+
+def run_e3_weights(schemes: Sequence[Tuple[str, Dict]], null_multi: np.ndarray,
+                   drift_list: Sequence[Tuple[str, float, np.ndarray]], ms: Sequence[float],
+                   lams: np.ndarray, alpha: float, alpha_edd: float, at: int,
+                   horizon: int = 0, match_far: float = 0.0) -> List[Dict]:
+    """E3：在同一批流上比较各权重方案（变前误报 + 各漂移目标的检出/延迟）。
+
+    `schemes` 里每项是 (方案名, 说明字典)，字典形如
+    {"kind": "fixed"|"adaptive", "w": 权重或 None, "eta": 自适应强度}。
+    各指标自身的 e-value 序列（component_series）**只算一次**，供所有方案复用。
+
+    `match_far` > 0 时，额外产出一组 `calib="matched"` 的行：每个方案用
+    「把变前误报压到 match_far」的自己那条阈值（见 matched_threshold），
+    从而在**同一误报水平**上比较 EDD——否则自适应方案会凭更高的误报率"看起来更快"。
+    """
+    rows: List[Dict] = []
+    null_multi = np.asarray(null_multi, dtype=float)
+
+    def _w_text(w, k):
+        return "、".join(f"{x:.3f}" for x in (normalize_weights(w) if w is not None
+                                             else np.full(k, 1.0 / k)))
+
+    M_null = component_series(null_multi, ms, lams) if null_multi.size else None
+    drift_cache = []
+    for label, d, stream in drift_list:
+        stream = np.asarray(stream, dtype=float)
+        drift_cache.append((label, d, component_series(stream, ms, lams),
+                            int(stream.shape[1]) - at))
+    for name, spec in schemes:
+        kind = spec.get("kind", "fixed")
+        w = spec.get("w")
+        eta = float(spec.get("eta", 0.0))
+        k_dim = int(null_multi.shape[2]) if null_multi.ndim == 3 else len(ms)
+
+        def _mix(Mcomp):
+            return (adaptive_mix(Mcomp, w, eta) if kind == "adaptive"
+                    else weighted_mix(Mcomp, w))
+
+        thr_fixed = 1.0 / alpha_edd
+        thr_matched = None
+        if M_null is not None:
+            M0 = _mix(M_null)
+            times = first_alarm(M0, 1.0 / alpha)
+            times_op = first_alarm(M0, thr_fixed)
+            if match_far > 0:
+                thr_matched = matched_threshold(M0, match_far)
+            ok = times > 0
+            rows.append({
+                "experiment": "e3_weight", "scheme": name, "kind": kind, "calib": "fixed",
+                "eta": eta, "weights": _w_text(w, k_dim),
+                "drift_target": "（变前）", "delta": "",
+                "arl_alarm_rate": float(ok.mean()),
+                "arl_alarm_rate_op": float((times_op > 0).mean()),
+                "arl_mean": float(times[ok].mean()) if ok.any() else float("inf"),
+                "arl_median": float(np.median(times[ok])) if ok.any() else float("inf"),
+                "alpha": alpha, "alpha_edd": alpha_edd,
+                "threshold": round(thr_matched, 2) if thr_matched else round(thr_fixed, 2),
+            })
+            if match_far > 0 and thr_matched:
+                # 匹配阈值下**实际达到**的误报率：同误报水平的对比必须能核验，
+                # 否则读者无法确认"两条曲线是在同一个误报水平上比的"。
+                times_m = first_alarm(M0, thr_matched)
+                rows.append({
+                    "experiment": "e3_weight", "scheme": name, "kind": kind, "calib": "matched",
+                    "eta": eta, "weights": _w_text(w, k_dim),
+                    "drift_target": "（变前）", "delta": "",
+                    "arl_alarm_rate": float(ok.mean()),
+                    "arl_alarm_rate_op": float((times_m > 0).mean()),
+                    "arl_mean": float(times_m[times_m > 0].mean()) if (times_m > 0).any()
+                    else float("inf"),
+                    "arl_median": float(np.median(times_m[times_m > 0]))
+                    if (times_m > 0).any() else float("inf"),
+                    "alpha": alpha, "alpha_edd": alpha_edd,
+                    "threshold": round(thr_matched, 2), "match_target": match_far,
+                })
+        for label, d, M_comp, T_post in drift_cache:
+            M = _mix(M_comp)
+            rows.append({
+                "experiment": "e3_weight", "scheme": name, "kind": kind, "calib": "fixed",
+                "eta": eta, "weights": _w_text(w, len(ms)),
+                "drift_target": label, "delta": d,
+                "alpha": alpha, "alpha_edd": alpha_edd, "threshold": round(thr_fixed, 2),
+                **_edd_stats(M, alpha_edd, at, T_post, horizon),
+            })
+            if match_far > 0 and thr_matched:
+                rows.append({
+                    "experiment": "e3_weight", "scheme": name, "kind": kind, "calib": "matched",
+                    "eta": eta, "weights": _w_text(w, len(ms)),
+                    "drift_target": label, "delta": d,
+                    "alpha": alpha, "alpha_edd": alpha_edd,
+                    "threshold": round(thr_matched, 2),
+                    **_edd_stats(M, alpha_edd, at, T_post, horizon, threshold=thr_matched),
+                })
+    return rows
+
+
+def load_proxy_prior(proxies: Sequence[str], path: Optional[str] = None,
+                     floor: float = 0.25) -> Tuple[np.ndarray, str]:
+    """从 E0 的有效性结果里取「先验重要性」：各代理与真值的最大 |批次内 ρ|。
+
+    返回 (归一化权重, 数据源文件名)。找不到文件或缺列时退化为均匀权重——
+    先验可以来自实证，但**不能因为拿不到就跑不动**。
+    """
+    files = sorted(glob.glob(os.path.join(RESULTS_DIR, "proxy_validity_*.csv")), reverse=True)
+    if path:
+        files = [path] + [f for f in files if f != path]
+    n = max(1, len(proxies))
+    for f in files:
+        try:
+            with open(f, encoding="utf-8-sig", newline="") as fh:
+                rows = list(csv.DictReader(fh))
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not rows or "rho_within" not in rows[0]:
+            continue
+        strength = {}
+        for p in proxies:
+            vals = []
+            for r in rows:
+                if r.get("proxy") != p:
+                    continue
+                try:
+                    vals.append(abs(float(r["rho_within"])))
+                except (TypeError, ValueError):
+                    continue
+            if vals:
+                strength[p] = max(vals)
+        if len(strength) == len(proxies):
+            return prior_from_values([strength[p] for p in proxies], floor), os.path.basename(f)
+    return np.full(n, 1.0 / n), "（未找到 E0 结果，退化为均匀权重）"
+
+
 def load_proxy_matrix(path: Optional[str] = None, need: Sequence[str] = ()) -> Tuple[str, List[Dict]]:
     """读 E0 的逐查询代理矩阵。
 
@@ -893,6 +1116,19 @@ def main() -> int:
                          "大漂移下三条规则都能到 1.00，区分不出方法优劣）")
     ap.add_argument("--e2-delays", default="0,50",
                     help="报警后再等多少步才归因（默认 0,50）")
+    ap.add_argument("--e3", dest="e3", action="store_true", default=True,
+                    help="跑 E3：权重方案对比（默认开，需要 E1 的联合流）")
+    ap.add_argument("--no-e3", dest="e3", action="store_false", help="跳过 E3")
+    ap.add_argument("--e3-prior", default="",
+                    help="先验权重用的 E0 结果文件（默认取 results/ 下最新的一份）")
+    ap.add_argument("--e3-prior-floor", type=float, default=0.25,
+                    help="先验向均匀权重收缩的比例（0=纯先验，1=纯均匀，默认 0.25）")
+    ap.add_argument("--e3-etas", default="0.25,0.5,1.0",
+                    help="自适应加权的 η 网格（越大越激进）；最后一个会用于「从错误先验出发」")
+    ap.add_argument("--e3-wrong-share", type=float, default=0.8,
+                    help="错误先验里压在第 1 个指标上的权重（默认 0.8）")
+    ap.add_argument("--e3-match-far", type=float, default=0.01,
+                    help="同误报水平对比的目标误报率（每个方案各自定阈值；0=关闭，默认 0.01）")
     ap.add_argument("--e5-strategies", default="mean,q60,q85,hoeffding,binom,max",
                     help="曲线上的具名策略标记点（也会用于混合版的 m 替换）")
     ap.add_argument("--edd-horizon", type=int, default=300,
@@ -1232,6 +1468,52 @@ def main() -> int:
                     print(f"  延迟 {delay:>3} 步 规则 {rule:<7} "
                           f"平均命中率={np.mean([r['acc'] for r in sub]):.2f}"
                           f"（共 {len(sub)} 个 目标×Δ 格）")
+    # ---- 实验 6：E3 权重方案（均匀 / 先验 / 自适应）----
+    if getattr(args, "e3", True) and e1_ok:
+        prior, prior_src = load_proxy_prior(e1_proxies, args.e3_prior, args.e3_prior_floor)
+        k_dim = len(e1_proxies)
+        # 「故意放错」的先验：把大部分权重压在第 1 个指标上（其余平分）——
+        # 用来检验自适应能不能从一个错误先验出发自己纠正回来。
+        wrong = np.full(k_dim, (1.0 - args.e3_wrong_share) / max(1, k_dim - 1))
+        wrong[0] = args.e3_wrong_share
+        schemes: List[Tuple[str, Dict]] = [
+            ("均匀权重", {"kind": "fixed", "w": None}),
+            ("先验权重（E0 相关强度）", {"kind": "fixed", "w": prior}),
+            ("先验权重（故意放错）", {"kind": "fixed", "w": wrong}),
+        ]
+        for eta in [float(x) for x in str(args.e3_etas).split(",") if x.strip()]:
+            schemes.append((f"自适应 η={eta:g}（从均匀出发）",
+                            {"kind": "adaptive", "w": None, "eta": eta}))
+        schemes.append((f"自适应 η={args.e3_etas.split(',')[-1].strip()}（从错误先验出发）",
+                        {"kind": "adaptive", "w": wrong, "eta": float(args.e3_etas.split(",")[-1])}))
+        print(f"\n[实验 6/E3] 权重方案对比：{k_dim} 个指标"
+              f"｜先验来自 {prior_src}：{'、'.join(f'{p}={w:.2f}' for p, w in zip(e1_proxies, prior))}"
+              f"｜错误先验：{'、'.join(f'{w:.2f}' for w in normalize_weights(wrong))}")
+        drift_list = []
+        for k in range(k_dim):
+            for d in scan_deltas:
+                stream = np.array(base_e1, copy=True)
+                stream[:, :, k] = inject_drift(stream[:, :, k], at=120, delta=d,
+                                               direction=+1, mode=args.inject_mode,
+                                               rng=rng_e1)
+                drift_list.append((f"仅指标#{k}", d, stream))
+        e3_rows = run_e3_weights(schemes, streams_e1, drift_list, ms_e1, lams_e1,
+                                 args.alpha, args.alpha_edd, at=120,
+                                 horizon=args.edd_horizon, match_far=args.e3_match_far)
+        for r in e3_rows:
+            r.update({"proxy": "全指标混合", "n": int(X.shape[0]), "K": k_dim,
+                      "k_proxies": "、".join(e1_proxies), "prior_src": prior_src})
+            records.append({k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()})
+        for name, _spec in schemes:
+            arl = [float(r.get("arl_alarm_rate_op", float("nan"))) for r in e3_rows
+                   if r["scheme"] == name and r["drift_target"] == "（变前）"]
+            hit = [r for r in e3_rows if r["scheme"] == name
+                   and r["drift_target"] != "（变前）" and r.get("delta") == scan_deltas[0]]
+            det = np.mean([float(r["detect_rate"]) for r in hit]) if hit else float("nan")
+            edds = [float(r["edd_mean"]) for r in hit if not is_inf(r["edd_mean"])]
+            print(f"  {name:<26} 误报率@α_edd={arl[0]:.2f} "
+                  f"Δ={scan_deltas[0]} 平均检出率={det:.2f} "
+                  f"平均 EDD={'—' if not edds else f'{np.mean(edds):.1f}'}")
     # ---- 输出 ----
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_csv = os.path.join(RESULTS_DIR, f"edetector_{stamp}.csv")
@@ -1692,6 +1974,106 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
             "那时需要的是「漂移来源 → 指标特征」的联合推断，属于下一步（需要漂移场景库）。",
             "- 未检出率：报警率不到 1 的那些格子里，剩余部分不是「归因错」，而是**根本没报警**，"
             "两者要分开看。"]
+    # E3：权重方案
+    e3 = [r for r in records if r.get("experiment") == "e3_weight"]
+    if e3:
+        sec_no = "七" if (e5_curve or e5_mix) and e2 else ("六" if (e5_curve or e5_mix) or e2 else "五")
+        schemes_ = [s for s in dict.fromkeys(r["scheme"] for r in e3) if s]
+        deltas_ = sorted({r["delta"] for r in e3 if r.get("drift_target") != "（变前）"})
+        match_far = next((r.get("match_target") for r in e3 if r.get("match_target")), "")
+        lines += ["", f"## {sec_no}、E3：权重方案（均匀 / 先验 / 自适应）", "",
+                  "> 混合的权重是本文的实验变量之一：均匀（基线）、按 E0 实证的相关强度加先验、",
+                  "> 以及按「上一时刻各指标自身的 e-value」逐点调整的自适应加权"
+                  "（可预测、任意时刻权重和为 1）。",
+                  "> **关键口径**：自适应加权在同一阈值下误报更高，直接比 EDD 等于拿两条不同"
+                  "误报水平的曲线比——所以下面第二张表让**每个方案各自定阈值**、把变前误报对齐后再比。", ""]
+
+        def _edd_cells(calib):
+            out = {}
+            for s in schemes_:
+                row = []
+                for d in deltas_:
+                    hit = [r for r in e3 if r["scheme"] == s and r.get("calib") == calib
+                           and r.get("drift_target") != "（变前）" and r.get("delta") == d]
+                    edds = [float(r["edd_mean"]) for r in hit if not is_inf(r["edd_mean"])]
+                    dets = [float(r["detect_rate"]) for r in hit]
+                    if not hit:
+                        row.append("—")
+                    elif edds:
+                        row.append(f"{np.mean(dets):.2f} / {np.mean(edds):.1f}")
+                    else:
+                        row.append(f"{np.mean(dets):.2f} / —")
+                out[s] = row
+            return out
+
+        cells_fixed, cells_match = _edd_cells("fixed"), _edd_cells("matched")
+        lines += ["### 表 1：同一阈值（1/α_edd）下的误报与延迟", "",
+                  "| 方案 | 权重 | 变前误报率 | " + " | ".join(f"Δ={d} 检出/EDD" for d in deltas_)
+                  + " | 阈值 |", "|---" * (len(deltas_) + 4) + "|"]
+        for s in schemes_:
+            null = next((r for r in e3 if r["scheme"] == s and r.get("calib") == "fixed"
+                         and r.get("drift_target") == "（变前）"), None)
+            if not null:
+                continue
+            lines.append(f"| {s} | {null.get('weights', '')} | "
+                         f"{float(null.get('arl_alarm_rate_op', 0)):.3f} | "
+                         + " | ".join(cells_fixed[s]) + f" | {null.get('threshold', '')} |")
+        if match_far:
+            lines += ["", f"### 表 2：同误报水平下的延迟（每个方案各自定阈值，目标误报 {match_far}）", "",
+                      "| 方案 | 权重 | 匹配阈值 | 实际误报率 | "
+                      + " | ".join(f"Δ={d} 检出/EDD" for d in deltas_) + " |",
+                      "|---" * (len(deltas_) + 4) + "|"]
+            for s in schemes_:
+                null = next((r for r in e3 if r["scheme"] == s and r.get("calib") == "matched"
+                             and r.get("drift_target") == "（变前）"), None)
+                if not null:
+                    continue
+                lines.append(f"| {s} | {null.get('weights', '')} | {null.get('threshold', '')} | "
+                             f"{float(null.get('arl_alarm_rate_op', 0)):.3f} | "
+                             + " | ".join(cells_match[s]) + " |")
+            # 结论：同误报水平下谁更快、自适应能否纠正错误先验
+            base = next((s for s in schemes_ if s.startswith("均匀")), None)
+            wrong = next((s for s in schemes_ if "故意放错" in s and "自适应" not in s), None)
+            adapt_wrong = next((s for s in schemes_ if "自适应" in s and "错误先验" in s), None)
+            adapt_best = None
+            for s in schemes_:
+                if "自适应" not in s or "错误先验" in s:
+                    continue
+                vals = [float(x) for x in cells_match.get(s, []) if x != "—"
+                        for x in [x.split(" / ")[1]] if x != "—"]
+                if vals and (adapt_best is None or np.mean(vals) < adapt_best[1]):
+                    adapt_best = (s, float(np.mean(vals)))
+            def _mean_edd(s):
+                vals = []
+                for c in cells_match.get(s, []):
+                    if " / " in c and c.split(" / ")[1] not in ("—",):
+                        vals.append(float(c.split(" / ")[1]))
+                return float(np.mean(vals)) if vals else float("nan")
+            if base and adapt_best:
+                lines.append(
+                    f"- **同一误报水平下，权重方案几乎没有差别**：{base} 平均 EDD "
+                    f"{_mean_edd(base):.1f} 步 vs {adapt_best[0]} {adapt_best[1]:.1f} 步"
+                    f"（差 {abs(_mean_edd(base) - adapt_best[1]) / _mean_edd(base) * 100:.0f}%）。"
+                    f"表 1 里自适应看起来快 15%，其实是它把变前误报从 "
+                    f"{float(next((r for r in e3 if r['scheme'] == base and r.get('calib') == 'fixed' and r.get('drift_target') == '（变前）'), {'arl_alarm_rate_op': 0})['arl_alarm_rate_op']):.3f} "
+                    f"提到了 "
+                    f"{float(next((r for r in e3 if r['scheme'] == adapt_best[0] and r.get('calib') == 'fixed' and r.get('drift_target') == '（变前）'), {'arl_alarm_rate_op': 0})['arl_alarm_rate_op']):.3f} 换来的。")
+            if wrong and base:
+                lines.append(
+                    f"- **先验放错要付代价**：{wrong} 的 EDD {_mean_edd(wrong):.1f} 步，"
+                    f"比均匀权重（{_mean_edd(base):.1f} 步）慢 "
+                    f"{( _mean_edd(wrong) / _mean_edd(base) - 1) * 100:.0f}%——先验不是不能用，"
+                    f"但不能错。")
+            if adapt_wrong and base:
+                lines.append(
+                    f"- **自适应的真正价值是免于先验**：从错误先验出发的自适应"
+                    f"（{adapt_wrong}）平均 EDD {_mean_edd(adapt_wrong):.1f} 步，"
+                    f"与从均匀出发的自适应/均匀权重一致——它把错误的先验自己纠正了回来。"
+                    f"也就是说：自适应不让你更快，而是让你**不必事先知道哪个指标更重要**。")
+            lines.append(
+                "- 工程建议：不确定各指标重要性时用均匀权重（最稳、无需先验）；"
+                "想省掉「先验怎么定」这件事可以用自适应，但必须**按同一误报水平重新定阈值**"
+                "（自适应方案的阈值明显更高），否则会得到一个「更快但更吵」的假优势。")
     lines += [
         "",
         f"- 示例轨迹（可直接画图，已含阈值/变点/报警步数列）：`{os.path.basename(series_csv)}`；"

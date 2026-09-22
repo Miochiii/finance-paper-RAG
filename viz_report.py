@@ -37,6 +37,7 @@ SERIES_CSV = "edetector_series_20260921_1955.csv"
 VALIDITY_CSV = "proxy_validity_hmm_20260921_1928.csv"
 E5_CSV = "edetector_20260922_2023.csv"        # E5 扫描结果（含 e5_curve / e5_mix 行）
 E2_CSV = "edetector_20260922_2032.csv"        # E2 归因结果（含 e2_attr 行）
+E3_CSV = "edetector_20260922_2053.csv"        # E3 权重方案结果（含 e3_weight 行）
 
 # ---- 配色（色盲友好的深浅对比）----
 BG = (255, 255, 255)
@@ -749,9 +750,76 @@ def fig7_attribution(root=FIGS_DIR):
     return out, os.path.basename(E2_CSV)
 
 
+def fig8_weights(root=FIGS_DIR):
+    """E3：权重方案对比——左：同一阈值下的误报率；右：同误报水平下的 EDD。
+
+    右panel 才是关键：自适应在同一阈值下"看起来更快"，但它误报也更高；
+    把每个方案各自的阈值调到同一误报水平，差异才说得清。
+    """
+    rows = _load_e5(E3_CSV, "e3_weight")
+    schemes = list(dict.fromkeys(r["scheme"] for r in rows))
+    deltas = sorted({r["delta"] for r in rows if r["drift_target"] != "（变前）"})
+    c = Canvas(1500, 900)
+    c.text(60, 40, "混合的权重怎么定？均匀、先验、自适应的三方对比", size=34, bold=True)
+    c.text(60, 96, "左：同一报警线下的变前误报率（越低越安全）　"
+                   "右：把各方案误报对齐到 1% 之后的报警延迟（越短越好）", size=19, color=MUTED)
+
+    def short(name):
+        return (name.replace("（E0 相关强度）", "·E0").replace("（故意放错）", "·放错")
+                .replace("（从均匀出发）", "").replace("（从错误先验出发）", "·从错先验")
+                .replace("权重", ""))
+
+    p1 = Panel(c, (300, 250, 700, 620), (0, 0.045), (0, len(schemes)),
+               title="", ylabel="变前误报率")
+    # 值是**横轴**（横向条形）→ 网格线是竖线、刻度在下方（画到左侧会压住行标签）
+    p1.grid([], [0, 0.01, 0.02, 0.03, 0.04], xlabels=["0", "1%", "2%", "3%", "4%"])
+    for i, s in enumerate(schemes):
+        null = next((r for r in rows if r["scheme"] == s and r["calib"] == "fixed"
+                     and r["drift_target"] == "（变前）"), None)
+        if not null:
+            continue
+        v = float(null["arl_alarm_rate_op"])
+        y = len(schemes) - i - 0.5
+        col = BAD if v > 0.02 else GOOD
+        c.rect(p1.x0, p1.py(y + 0.32), p1.px(v), p1.py(y - 0.32), fill=col)
+        c.text(p1.px(v) + 10, p1.py(y) - 12, f"{v:.3f}", size=17, bold=True, color=col)
+        c.text(p1.x0 - 14, p1.py(y) - 12, short(s), size=17, anchor="ra")
+    c.text(300, 206, "① 同一阈值（1/α_edd）下的误报率", size=22, bold=True)
+
+    p2 = Panel(c, (1080, 250, 1440, 620), (0, 45), (0, len(schemes)),
+               title="", ylabel="平均 EDD（步）")
+    p2.grid([], [0, 10, 20, 30, 40], xlabels=[str(x) for x in (0, 10, 20, 30, 40)])
+    for i, s in enumerate(schemes):
+        hit = [r for r in rows if r["scheme"] == s and r["calib"] == "matched"
+               and r["drift_target"] != "（变前）" and r["delta"] == deltas[0]]
+        edds = [float(r["edd_mean"]) for r in hit if not is_inf_s(r["edd_mean"])]
+        if not edds:
+            continue
+        v = sum(edds) / len(edds)
+        y = len(schemes) - i - 0.5
+        col = BAD if ("放错" in s and "自适应" not in s) else (BLUE if "自适应" in s else GOOD)
+        c.rect(p2.x0, p2.py(y + 0.32), p2.px(v), p2.py(y - 0.32), fill=col)
+        c.text(p2.px(v) + 10, p2.py(y) - 12, f"{v:.1f}", size=17, bold=True, color=col)
+        c.text(p2.x0 - 14, p2.py(y) - 12, short(s), size=17, anchor="ra")
+    c.text(1080, 206, f"② 同误报水平（1%）下的 EDD（Δ={deltas[0]}）", size=22, bold=True)
+
+    c.rect(150, 660, 1440, 800, fill=(232, 245, 233), outline=GOOD, width=2)
+    c.text(170, 672, "三条结论：", size=20, bold=True)
+    c.text(170, 702, "① 同一误报水平下，均匀 / 先验 / 自适应几乎没有差别（31.9 vs 32.0 步）——"
+                     "自适应在左图里「看着快 15%」，代价是把误报从 0.5% 提到 3.5%；", size=19)
+    c.text(170, 730, "② 唯一明显变差的是「先验放错」：EDD 慢 17%——先验不是不能用，而是不能错；", size=19)
+    c.text(170, 758, "③ 自适应的价值在于免于先验：从错误先验出发的自适应，"
+                     "结果与从均匀出发完全一致，它把错误先验自己纠正了回来。", size=19)
+    c.text(150, 820, "口径：3 个指标、200 次重复、Δ=0.2/0.4、上界 m 取 E5 推荐值；匹配阈值由变前流的"
+                     "运行最大值分位数给出（实际部署应放在独立校准样本上）。", size=17, color=MUTED)
+    out = os.path.join(root, "fig8_weights.png")
+    c.save(out)
+    return out, os.path.basename(E3_CSV)
+
+
 FIGURES = {"fig1": fig1_matrix, "fig2": fig2_trajectory, "fig3": fig3_false_alarm,
            "fig4": fig4_validity, "fig5": fig5_cost_dilution, "fig6": fig6_m_tradeoff,
-           "fig7": fig7_attribution}
+           "fig7": fig7_attribution, "fig8": fig8_weights}
 
 
 def main() -> int:

@@ -408,6 +408,67 @@ class TestE2Attribution:
         assert ev["acc"] == 1.0
 
 
+class TestE3Weights:
+    """E3：权重方案（均匀 / 先验 / 自适应）的纯函数。"""
+
+    def test_normalize_weights_sums_to_one(self):
+        w = ed.normalize_weights([2.0, 1.0, 1.0])
+        assert abs(w.sum() - 1.0) < 1e-12
+        assert abs(w[0] - 0.5) < 1e-12
+
+    def test_normalize_weights_handles_degenerate_input(self):
+        for bad in ([0.0, 0.0, 0.0], [-1.0, -2.0, -3.0]):
+            w = ed.normalize_weights(bad)
+            assert abs(w.sum() - 1.0) < 1e-12 and (w > 0).all()   # 退化为均匀，而不是 NaN
+
+    def test_prior_from_values_keeps_floor(self):
+        w = ed.prior_from_values([0.42, 0.29, 0.002], floor=0.25)
+        assert abs(w.sum() - 1.0) < 1e-12
+        assert w[2] >= 0.25 / 3 - 1e-12          # 弱指标不会被先验归零
+        assert w[0] > w[1] > w[2]
+
+    def test_weighted_mix_uniform_equals_component_average(self):
+        rng = np.random.default_rng(41)
+        x = rng.random((3, 50, 2)) * 0.5
+        ms = [0.6, 0.6]
+        lams = ed.lambda_grid(0.6, n_lam=3)
+        M = ed.component_series(x, ms, lams)
+        assert np.allclose(ed.weighted_mix(M, None), M.mean(axis=2))
+        # 单指标权重 → 退化成那一个指标自己的序列
+        assert np.allclose(ed.weighted_mix(M, [1.0, 0.0]), M[:, :, 0])
+
+    def test_adaptive_mix_eta_zero_is_fixed_prior(self):
+        rng = np.random.default_rng(42)
+        M = rng.random((4, 30, 3)) + 0.5
+        a = ed.adaptive_mix(M, [0.5, 0.3, 0.2], eta=0.0)
+        assert np.allclose(a, ed.weighted_mix(M, [0.5, 0.3, 0.2]))
+
+    def test_adaptive_mix_recovers_from_wrong_prior(self):
+        """自适应应当把权重从错误的先验挪到真正在动的指标上。"""
+        T = 60
+        M = np.ones((3, T, 2))
+        M[:, 20:, 1] = np.cumprod(np.full(T - 20, 1.6))     # 指标1 在 t=20 后持续增长
+        wrong = [0.9, 0.1]
+        fix = ed.weighted_mix(M, wrong)
+        ad = ed.adaptive_mix(M, wrong, eta=1.0)
+        c = 20.0
+        t_fix = int(ed.first_alarm(fix, c)[0])
+        t_ad = int(ed.first_alarm(ad, c)[0])
+        assert t_ad > 0 and (t_fix == 0 or t_ad < t_fix)     # 自适应更早越过同一阈值
+
+    def test_matched_threshold_hits_target_far(self):
+        rng = np.random.default_rng(43)
+        M = rng.random((800, 40))                            # 变前流
+        thr = ed.matched_threshold(M, target=0.10)
+        got = float((ed.first_alarm(M, thr) > 0).mean())
+        assert abs(got - 0.10) < 0.05
+
+    def test_load_proxy_prior_falls_back_to_uniform(self):
+        w, src = ed.load_proxy_prior(["a", "b", "c"], path="no_such_file.csv")
+        assert np.allclose(w, [1 / 3, 1 / 3, 1 / 3])
+        assert "退化" in src or "未找到" in src
+
+
 class TestSimulation:
     def test_block_bootstrap_shape(self):
         rng = np.random.default_rng(5)
