@@ -623,6 +623,132 @@ def e5_mix_rows(null_multi: np.ndarray, drift_multi: Sequence[Tuple[str, float, 
     return rows
 
 
+# --------------------------------------------------------------------------
+# E2：漂移类型归因（G4）——报警之后，判断是哪个指标在退化
+# --------------------------------------------------------------------------
+ATTRIBUTION_RULES = ("evalue", "recent", "zscore", "shift")
+
+
+def component_series(x_multi: np.ndarray, ms: Sequence[float],
+                     lams: np.ndarray) -> np.ndarray:
+    """每个指标**自身**的凸混合 e-value 序列，形状 (R, T, K)。
+
+    混合统计量 M_n = Σ_k ω_k M_k(n) 是按指标可分解的，这给了归因一个天然的抓手：
+    报警时刻哪个指标的 M_k 更大，就更像是它在退化。注意 ω_k 中同一指标的多个 λ 分量
+    权重相同，所以这里对每个指标在其 λ 网格上取平均。
+    """
+    x_multi = np.asarray(x_multi, dtype=float)
+    if x_multi.ndim != 3:
+        raise ValueError("x_multi 应为 (R,T,K) 形状")
+    R, T, K = x_multi.shape
+    out = np.empty((R, T, K), dtype=float)
+    for k in range(K):
+        comps = [cumulative_evalue_series(x_multi[:, :, k], float(ms[k]), float(lam))
+                 for lam in lams]
+        out[:, :, k] = np.mean(np.stack(comps, axis=0), axis=0)
+    return out
+
+
+def attribute(rule: str, M_comp: np.ndarray, x_multi: np.ndarray, ms: Sequence[float],
+              t_eval: np.ndarray, window: int = 50,
+              base_mean: Optional[Sequence[float]] = None,
+              base_sd: Optional[Sequence[float]] = None) -> np.ndarray:
+    """按规则给出每个流预测的漂移指标下标（在 t_eval 时刻判断）。
+
+    - evalue：各指标自身 e-value 最大者（**累积**证据最多）；
+    - recent：最近 window 步的**对数增量**最大者（新近证据）——
+      累积量会被历史主导，长跑之后早期的小波动也可能压过刚发生的漂移；
+    - zscore：最近 window 步均值相对**变前均值/标准差**的 z 值最大者
+      （工程上最标准的控制图做法，方差归一化，是三条基线里最强的一条）；
+    - shift ：最近 window 步均值相对上界 m_k 的原始偏移最大者（最朴素的做法）。
+    """
+    M_comp = np.asarray(M_comp, dtype=float)
+    x_multi = np.asarray(x_multi, dtype=float)
+    R, T, K = M_comp.shape
+    t = np.clip(np.asarray(t_eval, dtype=int), 1, T)
+    idx = np.arange(R)
+    w = max(1, min(int(window), T - 1))
+    t0 = np.maximum(0, t - 1 - w)
+    if rule == "evalue":
+        score = M_comp[idx, t - 1, :]
+    elif rule == "recent":
+        score = np.log(np.maximum(M_comp[idx, t - 1, :], 1e-12)) - \
+            np.log(np.maximum(M_comp[idx, t0, :], 1e-12))
+    elif rule in ("zscore", "shift"):
+        bm = (np.asarray(base_mean, dtype=float) if base_mean is not None
+              else np.asarray(ms, dtype=float))
+        bs = (np.asarray(base_sd, dtype=float) if base_sd is not None else None)
+        score = np.zeros((R, K), dtype=float)
+        for k in range(K):
+            recent = np.array([x_multi[i, t0[i]:t[i], k].mean() for i in range(R)])
+            if rule == "zscore":
+                denom = max(float(bs[k]) if bs is not None else 1.0, 1e-6)
+            else:
+                denom = max(float(ms[k]), 1e-9)
+            score[:, k] = (recent - float(bm[k])) / denom
+    else:
+        raise ValueError(f"未知归因规则: {rule}")
+    return np.argmax(score, axis=1)
+
+
+def run_e2_attribution(pool: np.ndarray, ms: Sequence[float], lams: np.ndarray,
+                       alpha: float, at: int, deltas: Sequence[float],
+                       targets: Optional[Sequence[int]], directions: Sequence[int],
+                       reps: int, T_pre: int, T_post: int, rng: np.random.Generator,
+                       mode: str = "contaminate", horizon: int = 300,
+                       window: int = 50, calib: Optional[np.ndarray] = None,
+                       delays: Sequence[int] = (0,)) -> List[Dict]:
+    """E2：漂移只打在某个指标上，看报警后能否把它指出来。
+
+    每一行 =（漂移目标, Δ, 归因规则, 归因延迟）的准确率；只统计**在视界内报警**的流
+    （没报警就无从归因，这部分单列报警率）。`delays` 是「报警后再等多少步才判断」——
+    等得久证据更多，但如果算法只能在事后才准，实用性就打折。
+    """
+    K = int(pool.shape[1])
+    tgts = list(range(K)) if targets is None else list(targets)
+    pre_idx = block_bootstrap(np.arange(pool.shape[0], dtype=float), reps, T_pre, 20, rng).astype(int)
+    post_idx = block_bootstrap(np.arange(pool.shape[0], dtype=float), reps, T_post, 20, rng).astype(int)
+    base = np.concatenate([pool[pre_idx], pool[post_idx]], axis=1)     # (R, at+T_post, K)
+    c = np.asarray(calib, dtype=float) if calib is not None else np.asarray(pool, dtype=float)
+    base_mean = c.mean(axis=0) if c.size else np.asarray(ms, dtype=float)
+    base_sd = c.std(axis=0, ddof=0) if c.size else np.ones(len(ms))
+    out: List[Dict] = []
+    for tgt in tgts:
+        for d in deltas:
+            stream = np.array(base, copy=True)
+            stream[:, :, tgt] = inject_drift(stream[:, :, tgt], at=at, delta=d,
+                                             direction=int(directions[tgt]), mode=mode,
+                                             rng=rng)
+            M = build_multi_detector(stream, ms, lams, "mix")
+            times = first_alarm(M, 1.0 / alpha)
+            late = times > at + horizon
+            times = np.where(late, 0, times)          # 超出视界＝没检出
+            det = times > at
+            M_comp = component_series(stream, ms, lams)
+            T = stream.shape[1]
+            for delay in delays:
+                t_eval = np.clip(times + int(delay), 1, T)
+                for rule in ATTRIBUTION_RULES:
+                    if det.any():
+                        pred = attribute(rule, M_comp[det], stream[det], ms, t_eval[det],
+                                         window, base_mean, base_sd)
+                        acc = float((pred == tgt).mean())
+                        preds = pred.tolist()
+                    else:
+                        acc, preds = float("nan"), []
+                    out.append({
+                        "experiment": "e2_attr", "drift_target": f"仅指标#{tgt}",
+                        "target_k": tgt, "delta": d, "rule": rule, "delay": int(delay),
+                        "n_reps": int(reps), "n_alarmed": int(det.sum()),
+                        "detect_rate": float(det.mean()),
+                        "late_rate": float(late.mean()),
+                        "acc": acc,
+                        "acc_other": float(np.mean([p != tgt for p in preds])) if preds else float("nan"),
+                        "window": int(window), "horizon": int(horizon), "alpha": alpha,
+                    })
+    return out
+
+
 def load_proxy_matrix(path: Optional[str] = None, need: Sequence[str] = ()) -> Tuple[str, List[Dict]]:
     """读 E0 的逐查询代理矩阵。
 
@@ -757,6 +883,16 @@ def main() -> int:
                     help="E5 扫哪些代理（默认沿用 --proxy）")
     ap.add_argument("--e5-grid", type=int, default=13,
                     help="分位数主网格的点数（q50→q100，默认 13）")
+    ap.add_argument("--e2", dest="e2", action="store_true", default=True,
+                    help="跑 E2：漂移类型归因（默认开，需要 E1 的联合流）")
+    ap.add_argument("--no-e2", dest="e2", action="store_false", help="跳过 E2")
+    ap.add_argument("--e2-window", type=int, default=50,
+                    help="归因窗口（就近证据/recent 与 zscore/shift 规则用，默认 50 步）")
+    ap.add_argument("--e2-deltas", default="0.05,0.1,0.2",
+                    help="E2 扫描的漂移幅度（默认 0.05,0.1,0.2——**故意取小**："
+                         "大漂移下三条规则都能到 1.00，区分不出方法优劣）")
+    ap.add_argument("--e2-delays", default="0,50",
+                    help="报警后再等多少步才归因（默认 0,50）")
     ap.add_argument("--e5-strategies", default="mean,q60,q85,hoeffding,binom,max",
                     help="曲线上的具名策略标记点（也会用于混合版的 m 替换）")
     ap.add_argument("--edd-horizon", type=int, default=300,
@@ -985,6 +1121,7 @@ def main() -> int:
                           f"EDD均值={'—' if em == float('inf') else f'{em:.1f}'}")
 
     # ---- 实验 4：E5 m 策略扫描（保守性 vs 检测延迟的权衡曲线）----
+    scan_deltas = deltas or [0.2]          # E5 与 E2 共用（--no-e5 时 E2 也要用）
     if getattr(args, "e5", True):
         e5_proxies = [p.strip() for p in (args.e5_proxies or "").split(",") if p.strip()]
         e5_proxies = [p for p in e5_proxies if p in DEGRADE_DIRECTION] or list(units)
@@ -994,7 +1131,6 @@ def main() -> int:
                 build_unit(p)
         e5_proxies = [p for p in e5_proxies if p in units] or list(units)
         extra = [s.strip() for s in (args.e5_strategies or "").split(",") if s.strip()]
-        scan_deltas = deltas or [0.2]
         print(f"\n[实验 4/E5] m 扫描：{e5_proxies}｜分位数网格 {args.e5_grid} 点 + "
               f"具名策略 {extra}｜Δ={scan_deltas}")
         for p in e5_proxies:
@@ -1070,6 +1206,32 @@ def main() -> int:
                     print(f"  {r['m_strategy']:<10} 漂移={r['drift_target']} Δ={r['delta']} "
                           f"检出率={r['detect_rate']:.2f} "
                           f"EDD={'—' if isinstance(em, str) or em == float('inf') else f'{em:.1f}'}")
+    # ---- 实验 5：E2 漂移类型归因（报警之后，指出是哪个指标在退化）----
+    if getattr(args, "e2", True) and e1_ok:
+        # 注意：命令行给的是逗号分隔的字符串，必须先解析成数值列表——
+        # 直接把字符串传下去会按字符迭代（'0','.','0'…），在 inject_drift 里炸成 TypeError。
+        e2_deltas = [float(x) for x in str(args.e2_deltas).split(",") if x.strip()]
+        e2_delays = [int(float(x)) for x in str(args.e2_delays).split(",") if x.strip()]
+        print(f"\n[实验 5/E2] 漂移类型归因：报警后判断是哪一个指标在退化"
+              f"（Δ={e2_deltas}，归因窗口 {args.e2_window} 步，归因延迟 {e2_delays} 步）")
+        e2_rows = run_e2_attribution(
+            pool_e1, ms_e1, lams_e1, args.alpha_edd, at=120, deltas=e2_deltas,
+            targets=list(range(len(e1_proxies))), directions=[+1] * len(e1_proxies),
+            reps=args.reps_edd, T_pre=120, T_post=args.T, rng=rng_e1,
+            mode=args.inject_mode, horizon=args.edd_horizon, window=args.e2_window,
+            calib=Xn[:n_calib_e1], delays=e2_delays)
+        for r in e2_rows:
+            r.update({"proxy": "全指标混合", "n": int(X.shape[0]), "K": len(e1_proxies),
+                      "k_proxies": "、".join(e1_proxies)})
+            records.append({k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()})
+        for delay in e2_delays:
+            for rule in ATTRIBUTION_RULES:
+                sub = [r for r in e2_rows if r["rule"] == rule and r["delay"] == delay
+                       and r["acc"] == r["acc"]]
+                if sub:
+                    print(f"  延迟 {delay:>3} 步 规则 {rule:<7} "
+                          f"平均命中率={np.mean([r['acc'] for r in sub]):.2f}"
+                          f"（共 {len(sub)} 个 目标×Δ 格）")
     # ---- 输出 ----
     os.makedirs(RESULTS_DIR, exist_ok=True)
     out_csv = os.path.join(RESULTS_DIR, f"edetector_{stamp}.csv")
@@ -1459,6 +1621,75 @@ def write_report(records: List[Dict], args, proxies, fuses, strategies, matrix_p
                       "误报却已经很低，边际收益为零；",
                       "4. 变前报警率不是 0 才能说明保证在起作用：全 0 意味着上界过松、"
                       "检测器没分辨率（此时应先收紧 m 再谈功效）。"]
+    # 六、E2：漂移类型归因
+    e2 = [r for r in records if r.get("experiment") == "e2_attr"]
+    if e2:
+        hz = e2[0].get("horizon", "")
+        win = e2[0].get("window", "")
+        lines += ["", "## 六、E2：漂移类型归因（报警之后，是哪一个指标在退化）", "",
+                  "> E1 回答了「有没有变差」，E2 回答「是哪一类变差」。做法：混合统计量",
+                  "> M_n = Σ_k ω_k M_k(n) 按指标可分解，报警时比较各指标自身的 e-value",
+                  "> （规则 evalue）、最近一段的对数增量（规则 recent），",
+                  "> 并与工程上最自然的「窗口均值偏移最大者」（规则 shift）对照。",
+                  f"> 归因窗口 {win} 步；只统计变点后 {hz} 步内报警的流（没报警就无从归因）。", ""]
+        rules = [r for r in dict.fromkeys(x["rule"] for x in e2) if r]
+        deltas_ = [d for d in dict.fromkeys(x["delta"] for x in e2) if d != ""]
+        delays_ = [d for d in dict.fromkeys(x["delay"] for x in e2) if d != ""]
+        k_cls = max(1, int(e2[0].get("K", 1)))
+        for delay in delays_:
+            lines += ["", f"### 归因延迟 {int(delay)} 步"
+                          + ("（报警当下就判断）" if int(delay) == 0 else "（报警后再等这么久）"),
+                      "",
+                      "| Δ | " + " | ".join(f"规则 {r}" for r in rules) + " | 平均报警率 |",
+                      "|---" * (len(rules) + 2) + "|"]
+            for d in deltas_:
+                cells = []
+                for r in rules:
+                    vals = [float(x["acc"]) for x in e2
+                            if x["delta"] == d and x["rule"] == r and x["delay"] == delay
+                            and x["acc"] == x["acc"]]
+                    cells.append(f"{np.mean(vals):.2f}" if vals else "—")
+                ar = [float(x["detect_rate"]) for x in e2
+                      if x["delta"] == d and x["delay"] == delay]
+                lines.append(f"| {d} | " + " | ".join(cells)
+                             + f" | {np.mean(ar):.2f} |" if ar else
+                             f"| {d} | " + " | ".join(cells) + " | — |")
+        lines += ["",
+                  "> 口径：命中率只在**该格真正报了警**的流上统计（报警率那一列是分母），"
+                  "所以小 Δ 下的命中率是「报警之后能否指对」，不是「能否报警」；"
+                  "K=3 类，随机猜 = 0.33。"]
+        best_rule = None
+        for r in rules:
+            vals = [float(x["acc"]) for x in e2 if x["rule"] == r and x["acc"] == x["acc"]]
+            if vals and (best_rule is None or np.mean(vals) > best_rule[1]):
+                best_rule = (r, float(np.mean(vals)))
+        # 延迟维度单独给一条结论：等得久不一定更好（就近证据类规则会退化）
+        delay_note = ""
+        if len(delays_) >= 2:
+            d0, d1 = min(delays_), max(delays_)
+            parts = []
+            for r in rules:
+                a0 = [float(x["acc"]) for x in e2 if x["rule"] == r and x["delay"] == d0
+                      and x["acc"] == x["acc"]]
+                a1 = [float(x["acc"]) for x in e2 if x["rule"] == r and x["delay"] == d1
+                      and x["acc"] == x["acc"]]
+                if a0 and a1:
+                    parts.append(f"{r} {np.mean(a0):.2f}→{np.mean(a1):.2f}")
+            if parts:
+                delay_note = (f"- 归因延迟的影响（延迟 {int(d0)} 步 → {int(d1)} 步，平均命中率）："
+                              + "；".join(parts) + "。")
+        if best_rule:
+            lines += ["",
+                      f"- 最好的归因规则是 **{best_rule[0]}**（平均命中率 {best_rule[1]:.2f}，"
+                      f"随机猜 {1.0 / k_cls:.2f}，提升 {best_rule[1] * k_cls:.1f} 倍）。"]
+        if delay_note:
+            lines.append(delay_note)
+        lines += [
+            "- 口径提醒：本实验的漂移是**逐指标注入**的，所以「归因」= 找出被注入的那个指标；"
+            "真实系统级漂移（换语料 / 换分块 / 换模型）往往会让多个指标同时移动，"
+            "那时需要的是「漂移来源 → 指标特征」的联合推断，属于下一步（需要漂移场景库）。",
+            "- 未检出率：报警率不到 1 的那些格子里，剩余部分不是「归因错」，而是**根本没报警**，"
+            "两者要分开看。"]
     lines += [
         "",
         f"- 示例轨迹（可直接画图，已含阈值/变点/报警步数列）：`{os.path.basename(series_csv)}`；"

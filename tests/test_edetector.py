@@ -359,6 +359,55 @@ class TestE5MScan:
         assert edd["detect_rate"] == 1.0 and edd["fuse"] == "全指标混合"
 
 
+class TestE2Attribution:
+    """E2：漂移类型归因的纯函数。"""
+
+    def test_component_series_shape_and_ordering(self):
+        rng = np.random.default_rng(31)
+        x = rng.random((4, 60, 3)) * 0.4
+        x[:, 30:, 1] = 0.95                      # 第 2 个指标变差
+        ms = [0.45, 0.45, 0.45]
+        M = ed.component_series(x, ms, ed.lambda_grid(0.45, n_lam=3))
+        assert M.shape == (4, 60, 3)
+        # 报警时刻，被注入的那个指标的自身 e-value 应当最大
+        assert (np.argmax(M[:, -1, :], axis=1) == 1).all()
+
+    def test_attribute_rules_pick_drifted_indicator(self):
+        rng = np.random.default_rng(32)
+        x = rng.random((5, 80, 3)) * 0.3
+        x[:, 40:, 2] = 0.9
+        ms = [0.4, 0.4, 0.4]
+        M = ed.component_series(x, ms, ed.lambda_grid(0.4, n_lam=3))
+        t = np.full(5, 70)
+        for rule in ed.ATTRIBUTION_RULES:
+            pred = ed.attribute(rule, M, x, ms, t, window=30)
+            assert (pred == 2).all(), rule
+
+    def test_attribute_recent_ignores_stale_evidence(self):
+        """累积量会被历史主导：早期的大波动之后即使真漂移在别的指标上，
+        recent 规则（只看最近窗口）仍应指向真正在动的那个。"""
+        rng = np.random.default_rng(33)
+        x = rng.random((3, 120, 2)) * 0.2
+        x[:, 10:30, 0] = 1.0                     # 早期：指标0 曾大幅波动
+        x[:, 80:, 1] = 1.0                       # 后期：指标1 持续漂移
+        ms = [0.5, 0.5]
+        M = ed.component_series(x, ms, ed.lambda_grid(0.5, n_lam=3))
+        t = np.full(3, 119)
+        assert (ed.attribute("recent", M, x, ms, t, window=30) == 1).all()
+
+    def test_run_e2_attribution_reports_accuracy(self):
+        pool = np.full((40, 3), 0.2)
+        ms = [0.25, 0.25, 0.25]
+        rows = ed.run_e2_attribution(pool, ms, ed.lambda_grid(0.25, n_lam=3),
+                                     alpha=0.05, at=30, deltas=[0.5], targets=[1],
+                                     directions=[+1, +1, +1], reps=4, T_pre=30, T_post=60,
+                                     rng=np.random.default_rng(34), horizon=30, window=10)
+        assert len(rows) == len(ed.ATTRIBUTION_RULES)
+        ev = next(r for r in rows if r["rule"] == "evalue")
+        assert ev["drift_target"] == "仅指标#1" and ev["detect_rate"] > 0
+        assert ev["acc"] == 1.0
+
+
 class TestSimulation:
     def test_block_bootstrap_shape(self):
         rng = np.random.default_rng(5)

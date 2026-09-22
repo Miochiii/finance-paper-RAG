@@ -36,6 +36,7 @@ E1_Q85_CSV = "edetector_20260921_1955.csv"    # 旧口径（各指标统一 q85�
 SERIES_CSV = "edetector_series_20260921_1955.csv"
 VALIDITY_CSV = "proxy_validity_hmm_20260921_1928.csv"
 E5_CSV = "edetector_20260922_2023.csv"        # E5 扫描结果（含 e5_curve / e5_mix 行）
+E2_CSV = "edetector_20260922_2032.csv"        # E2 归因结果（含 e2_attr 行）
 
 # ---- 配色（色盲友好的深浅对比）----
 BG = (255, 255, 255)
@@ -686,8 +687,71 @@ def fig6_m_tradeoff(root=FIGS_DIR):
     return out, os.path.basename(E5_CSV)
 
 
+def fig7_attribution(root=FIGS_DIR):
+    """E2：报警之后的漂移类型归因——四条规则的命中率对比（两种归因延迟）。
+
+    横轴 = 漂移幅度 Δ，每个 Δ 下四根柱子是四条归因规则；虚线是随机猜（1/K）。
+    """
+    rows = _load_e5(E2_CSV, "e2_attr")
+    rules = ["evalue", "recent", "zscore", "shift"]
+    rule_cn = {"evalue": "e 值分解（累积）", "recent": "最近增量",
+               "zscore": "z 检验（方差归一）", "shift": "窗口均值偏移（朴素）"}
+    rule_col = {"evalue": GOOD, "recent": BLUE, "zscore": ORANGE, "shift": GRAY}
+    delays = sorted({int(r["delay"]) for r in rows})
+    deltas = sorted({float(r["delta"]) for r in rows})
+    k_cls = max(1, int(float(rows[0].get("K", 3))))
+    c = Canvas(1400, 830)
+    c.text(60, 40, "报警之后，能不能指出是哪一个指标在退化？", size=34, bold=True)
+    c.text(60, 96, f"E2：漂移只打在其中一个指标上，报警后判断是哪一个（{k_cls} 类，"
+                   f"随机猜 {1.0 / k_cls:.2f}）；命中率只在真正报了警的流上统计",
+           size=19, color=MUTED)
+    for j, delay in enumerate(delays):
+        bx0 = 140 + j * 660
+        pan = Panel(c, (bx0, 250, bx0 + 560, 600), (-0.4, len(deltas) - 0.6), (0, 1.05),
+                    title="", ylabel="归因命中率")
+        pan.grid([0, 0.25, 0.5, 0.75, 1.0], list(range(len(deltas))),
+                 xlabels=[f"Δ={d:g}" for d in deltas],
+                 ylabels=["0", "0.25", "0.5", "0.75", "1.0"])
+        c.text(bx0, 206, ("① 报警当下就判断" if delay == 0 else f"② 报警后再等 {delay} 步"),
+               size=22, bold=True)
+        w = 0.2
+        for i, d in enumerate(deltas):
+            for k, rule in enumerate(rules):
+                vals = [float(r["acc"]) for r in rows
+                        if r["rule"] == rule and int(r["delay"]) == delay
+                        and abs(float(r["delta"]) - d) < 1e-9 and r["acc"] == r["acc"]]
+                if not vals:
+                    continue
+                v = sum(vals) / len(vals)
+                x = i + (k - 1.5) * w
+                c.rect(pan.px(x - w / 2), pan.py(v), pan.px(x + w / 2), pan.py(0),
+                       fill=rule_col[rule])
+                c.text(pan.px(x), pan.py(v) - 22, f"{v:.2f}", size=14, bold=True,
+                       color=rule_col[rule], anchor="ma")
+        pan.hline(1.0 / k_cls, color=BAD, width=2, dash=7)
+        c.text(pan.x1 - 4, pan.py(1.0 / k_cls) + 6, "随机猜", size=15, color=BAD, anchor="ra")
+    lx, ly = 140, 630
+    for rule in rules:
+        c.rect(lx, ly, lx + 26, ly + 17, fill=rule_col[rule])
+        c.text(lx + 34, ly - 2, rule_cn[rule], size=18)
+        lx += 260
+    c.rect(140, 682, 1340, 796, fill=(232, 245, 233), outline=GOOD, width=2)
+    c.text(158, 694, "结论：用混合统计量自身的分解（各指标自己的 e 值）来归因，"
+                     "在所有漂移幅度下都最好（0.98–1.00）；", size=19)
+    c.text(158, 722, "朴素的「窗口均值偏移最大者」最差（小漂移时 0.62），"
+                     "方差归一化的 z 检验居中（0.81–0.93）。", size=19)
+    c.text(158, 750, "另一个发现：归因要趁报警当下做——等 50 步后「最近增量」从 1.00 掉到 0.48，"
+                     "而累积 e 值几乎不掉（1.00→0.98）。", size=19, color=INK)
+    c.text(158, 776, "口径：漂移是逐指标注入的，所以「归因」= 找出被注入的那个指标；"
+                     "真实系统级漂移会让多个指标同时动，属于下一步。", size=17, color=MUTED)
+    out = os.path.join(root, "fig7_attribution.png")
+    c.save(out)
+    return out, os.path.basename(E2_CSV)
+
+
 FIGURES = {"fig1": fig1_matrix, "fig2": fig2_trajectory, "fig3": fig3_false_alarm,
-           "fig4": fig4_validity, "fig5": fig5_cost_dilution, "fig6": fig6_m_tradeoff}
+           "fig4": fig4_validity, "fig5": fig5_cost_dilution, "fig6": fig6_m_tradeoff,
+           "fig7": fig7_attribution}
 
 
 def main() -> int:
