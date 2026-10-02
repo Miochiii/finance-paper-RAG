@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-10-01T15:29:02.199900+00:00",
+  "cases": 9,
+  "signal_cause_counts": {
+    "determinate": 3,
+    "answer_quote_validation": 5,
+    "temporary_basis_invalid": 1
+  },
+  "quality_u": 3,
+  "quality_u_with_inconsistent_total": 3,
+  "frozen_scores_unchanged": true,
+  "diagnosis_only": true
+}

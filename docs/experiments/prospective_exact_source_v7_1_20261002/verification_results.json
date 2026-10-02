@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-10-02T06:54:16.726346+00:00",
+  "tests": {
+    "status": "passed",
+    "passed": 30,
+    "failed": 0,
+    "new_repair_tests": 17,
+    "command": "python -m pytest -q -p no:cacheprovider tests/test_rag_prospective_objective_validation.py tests/test_rag_exact_source_cards.py tests/test_rag_public_field_retrieval.py tests/test_rag_sentence_boundary_repair.py tests/test_rag_numeric_unit_mapping.py tests/test_rag_objective_admission_guard.py",
+    "output": "30 passed in 1.16s",
+    "test_hashes": {
+      "E:\\file\\agent\\python.v\\project\\tests\\test_rag_prospective_objective_validation.py": "5b3484335f37e821fd0a74f2e87402642e5336780eff3ffbff45f3114f673f87",
+      "E:\\file\\agent\\python.v\\project\\tests\\test_rag_exact_source_cards.py": "3202ecd26520515cf04611b8ed6aa7aed7466dff3302e976dfcb8533e915174a",
+      "E:\\file\\agent\\python.v\\project\\tests\\test_rag_public_field_retrieval.py": "a6249ee31a007d888050f5786d94634eabd3700fad5ac26898182c9831a7414a",
+      "E:\\file\\agent\\python.v\\project\\tests\\test_rag_sentence_boundary_repair.py": "75d7d208e2048112fd724cec4552473e77d98a907862a0f7d5078c1114cfbd8b",
+      "E:\\file\\agent\\python.v\\project\\tests\\test_rag_numeric_unit_mapping.py": "497fbece9d1aeee474df092db5c72840449e83731e970aa3122237b94b8664d5",
+      "E:\\file\\agent\\python.v\\project\\tests\\test_rag_objective_admission_guard.py": "2b01cc3c95e01550d3d7e88a26ec2d164ed2d7ab3e74e8942efffbf58b650238"
+    }
+  },
+  "dataflow_audit": {
+    "status": "passed",
+    "path": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\integrity_audit.json",
+    "sha256": "fbea7ca327a31e6b19f493acd03d0a8fed339b3647afa4172d244b724b581722",
+    "scope": "dataflow_not_reference_semantics"
+  },
+  "visual_review": {
+    "status": "passed",
+    "files": [
+      "prospective_objective_comparison.png",
+      "validity_review/qualified_primary_results.png"
+    ],
+    "checked": "titles_labels_layout_and_primary_counts"
+  },
+  "new_unit_rule_scope": "development_replay_only",
+  "primary_scores_unchanged": true
+}

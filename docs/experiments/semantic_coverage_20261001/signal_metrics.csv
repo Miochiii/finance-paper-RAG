@@ -1,0 +1,5 @@
+﻿cohort,method,n,determinate,incomplete,flagged_incomplete,missed_incomplete,unresolved_incomplete,complete,flagged_complete,unresolved_complete
+development,question_answer,12,5,4,0,1,3,8,0,4
+development,supplementary_retrieval,12,7,4,2,0,2,8,2,3
+new_source_check,question_answer,0,0,0,0,0,0,0,0,0
+new_source_check,supplementary_retrieval,0,0,0,0,0,0,0,0,0

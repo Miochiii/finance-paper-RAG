@@ -1,0 +1,58 @@
+{
+  "saved_at": "2026-10-02T08:53:40.409387+00:00",
+  "primary_version": "V8.2",
+  "primary_gate": "passed",
+  "primary_questions": 17,
+  "primary_sources": 11,
+  "primary_normal_complete": 16,
+  "primary_bad_controls_flagged": 34,
+  "primary_bad_controls_total": 34,
+  "primary_proxy_unresolved": 0,
+  "primary_complete_control_false_flags": 0,
+  "mandatory_preflight": "passed",
+  "main_tests": 26,
+  "table_parser_tests": 2,
+  "main_dataflow_audit": "passed",
+  "independent_human_truth": false,
+  "source_cards_seen_in_preparation": true,
+  "table_direction_scope_issue_preserved_in_primary": true,
+  "original_P0002_quality_conditional_on_third_data_column": true,
+  "table_direction_development_pair": [
+    {
+      "condition": "original",
+      "quality": "0",
+      "proxy": "incomplete",
+      "source_basis": true,
+      "actual_model": "deepseek-flash",
+      "finish": "stop"
+    },
+    {
+      "condition": "clarified",
+      "quality": "2",
+      "proxy": "complete",
+      "source_basis": true,
+      "actual_model": "deepseek-flash",
+      "finish": "stop"
+    }
+  ],
+  "table_direction_scope_fixed_in_next_pair_bank": true,
+  "development_pair_not_merged_into_primary_metrics": true,
+  "previous_V8": {
+    "numeric_gate": "passed",
+    "workflow": "preflight_failed_confirmatory_use_blocked",
+    "all_records_retained": true
+  },
+  "previous_V8_1": {
+    "recorded_at": "2026-10-02T08:11:08.233287+00:00",
+    "status": "bank_gate_not_passed",
+    "attempts": 24,
+    "qualified_questions": 5,
+    "qualified_sources": 4,
+    "test_answers_generated": 0,
+    "all_candidates_retained": true,
+    "reason": "candidate_generation_treats_old_questions_as_requirements_instead_of_deduplication_context",
+    "next_revision": "remove_old_questions_from_generation_payload_keep_programmatic_deduplication",
+    "same_prepared_source_cards_reused_before_any_test_answer": true
+  },
+  "next_action": "freeze_real_evidence_fault_pairs_using_scope_corrected_questions"
+}

@@ -1,0 +1,12 @@
+{
+  "status": "failed",
+  "checked_at": "2026-10-02T12:28:56.715988+00:00",
+  "structural_paired_questions": 15,
+  "minimum_questions": 18,
+  "structural_paired_sources": 5,
+  "minimum_sources": 7,
+  "API_requests": 0,
+  "fresh_generations": 0,
+  "generation_prohibited": true,
+  "reason": "insufficient_same_paper_field_matched_intact_distractor_tables"
+}

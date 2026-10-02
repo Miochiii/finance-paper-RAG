@@ -1,0 +1,13 @@
+{
+  "version": "public_field_refusal_development",
+  "created_at": "2026-10-02T03:33:38.688733+00:00",
+  "rule_code_sha256": "6f05ead73dc0a2951650a5a38f065693665d021489a3fb26901688bb55dcc3c5",
+  "frozen_rule_count": 1,
+  "development_rule_count": 4,
+  "changed_cases": [
+    "S0003",
+    "S0005",
+    "S0018"
+  ],
+  "interpretation": "posthoc_debugging_on_existing_11_answers_requires_new_response_validation"
+}

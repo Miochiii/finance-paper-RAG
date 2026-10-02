@@ -1,0 +1,10 @@
+﻿aid,qid,condition,target_index,quality,signal_status,signal_cause,invalid_answer_quote_rows,short_quote_rows,nonliteral_quote_rows,quality_total_inconsistent_with_points
+V0001,fin_007,semantic_partial,2,U,complete,determinate,0,0,0,1
+V0002,fin_022,baseline,4,U,U,answer_quote_validation,1,1,0,1
+V0003,fin_007,baseline,2,2,complete,determinate,0,0,0,0
+V0004,fin_022,retained_evidence_prefix,4,U,U,answer_quote_validation,5,1,4,1
+V0005,fin_022,semantic_partial,4,1,U,answer_quote_validation,1,0,1,0
+V0006,fin_013,semantic_partial,2,1,incomplete,determinate,0,0,0,0
+V0007,fin_007,retained_evidence_prefix,2,2,U,temporary_basis_invalid,0,0,0,0
+V0008,fin_013,retained_evidence_prefix,2,2,U,answer_quote_validation,4,0,4,0
+V0009,fin_013,baseline,2,2,U,answer_quote_validation,2,0,2,0

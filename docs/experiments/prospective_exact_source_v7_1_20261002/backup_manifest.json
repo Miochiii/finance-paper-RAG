@@ -1,0 +1,204 @@
+{
+  "saved_at": "2026-10-02T06:54:22.211325+00:00",
+  "backup": "E:\\file\\agent\\paper_rag_project",
+  "copied_files": 32,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_prospective_objective_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_prospective_objective_validation.py",
+      "sha256": "e755aaf2847fc2100ff0ef27904a7ea0a6ea87fc102d131b289d4aa8074494f3",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_exact_source_cards.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_exact_source_cards.py",
+      "sha256": "dc07587e3cb0f99c96e8a328715f6578c403fa0520815afa5c9495d0af9a2d5f",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_exact_source_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_exact_source_validation.py",
+      "sha256": "2cae29f13c9897c0b58eea5e1ad9b9e0b327db932eb58e69e5fc922858df5e9d",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_prospective_objective.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_prospective_objective.py",
+      "sha256": "0a3e9d6e904d53a5c137c5d87e20201d65465140d4715c98c89751f536da21cc",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_prospective_objective.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_prospective_objective.py",
+      "sha256": "31c8fcf8962125b46b3fa80476606c35b0aad093e9794b318e667825d45ddec6",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_numeric_unit_mapping.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_numeric_unit_mapping.py",
+      "sha256": "2f5a4964e0b72c0e8cbbd2871e9f3e09547bd578b1d2c0249e194855bcddf3a8",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_objective_admission_guard.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_objective_admission_guard.py",
+      "sha256": "ffa255cab2c57253827ffb35a8b217d9fb7ab72d3679649b4aba91499bcf742f",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\diagnose_rag_prospective_validity.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\diagnose_rag_prospective_validity.py",
+      "sha256": "f59311b58adbb8c940089a373d240990fb38ecbb03df4ad820e30ba9b41b695f",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\sync_rag_prospective_artifacts.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\sync_rag_prospective_artifacts.py",
+      "sha256": "a518ec26235718d31acea8624a4bfacd4724458e4804458bd213325a86526611",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_prospective_objective_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_prospective_objective_validation.py",
+      "sha256": "5b3484335f37e821fd0a74f2e87402642e5336780eff3ffbff45f3114f673f87",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_exact_source_cards.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_exact_source_cards.py",
+      "sha256": "3202ecd26520515cf04611b8ed6aa7aed7466dff3302e976dfcb8533e915174a",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_numeric_unit_mapping.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_numeric_unit_mapping.py",
+      "sha256": "497fbece9d1aeee474df092db5c72840449e83731e970aa3122237b94b8664d5",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_objective_admission_guard.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_objective_admission_guard.py",
+      "sha256": "2b01cc3c95e01550d3d7e88a26ec2d164ed2d7ab3e74e8942efffbf58b650238",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\analysis_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\analysis_summary.json",
+      "sha256": "138a82203d2bab17aac1d851f772511d8875a14deda86fe21fbba651cf14ee86",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\integrity_audit.json",
+      "sha256": "fbea7ca327a31e6b19f493acd03d0a8fed339b3647afa4172d244b724b581722",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\verification_results.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\verification_results.json",
+      "sha256": "4e765ed18c6aae8d54aa7897b4261b1aa6abe2fd9f4d65d39664f5517c6483e9",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\candidate_screening.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\candidate_screening.csv",
+      "sha256": "dfb452ffacaa99a154f6ccb492663b392f550f2779cb18766b5c67e384ee6850",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\source_exposure.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\source_exposure.csv",
+      "sha256": "59c0eaff92dc423cf2a2970fbf03994393924f07edc4613b7d747a35bb2129b2",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\answer_scores.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\answer_scores.csv",
+      "sha256": "ded13f42e0778f96072816f0620ae1c82e4c313c7ffd2c591815edee935f2dbb",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\signal_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\signal_metrics.csv",
+      "sha256": "f66c1b8d9195cba2354d936078460f626f01194765ae092e2efbb8503edb67dd",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\proxy_basis_availability.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\proxy_basis_availability.csv",
+      "sha256": "a77d61123a6587e7b96b57aed59420590528776a97bba3fb9805bc80fdd78acb",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\live_source_groups.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\live_source_groups.csv",
+      "sha256": "83c55926f76496e89107ee702cfd6e3e4fc78a0342ed2239d7b12ee60122d8df",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\validity_review\\validity_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\validity_review\\validity_summary.json",
+      "sha256": "73609bfb4c9b42430afe9d5d38cbb296142001c28a7514fe7c02b181fc022ef5",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\validity_review\\validity_diagnostic.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\validity_review\\validity_diagnostic.csv",
+      "sha256": "f282f13330510dde4abd83967f9a8e1c21f70f367820b2a0d78d047db1f5d30e",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_objective_v7_20261002\\preparation_disposition.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\first_preparation_preparation_disposition.json",
+      "sha256": "d6aeab237480e9fa46a7b98f9648a7bef794bc7620a3cd8977ed0bef3f0cd9eb",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_objective_v7_20261002\\source_integrity_screening.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\first_preparation_source_integrity_screening.csv",
+      "sha256": "1133aab7652e7e8a1cc9616da3861fa0e372aaf0b5f1a382fd7546b4ab4321ed",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\validity_review\\qualified_primary_results.png",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_prospective_v7_1_qualified_20261002.png",
+      "sha256": "5dda77f1b9c17347bc3901300ca9066bcfe7785f58b870ead0bcb8d9efc4d396",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\validity_review\\qualified_primary_results.svg",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_prospective_v7_1_qualified_20261002.svg",
+      "sha256": "75e552c0f6bbc4e45b20c3a33e1c6317863b7998a06795c240e56f1f8e38207a",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\log\\前瞻新题验证V7_1协议_20261002.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_prospective_v7_1_protocol_20261002.md",
+      "sha256": "70b9debfac6d28a871cd723359b314b47efb57c7f278838a832554f5d2c11158",
+      "transformed": true
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\prospective_objective_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_prospective_v7_1_primary_report_20261002.md",
+      "sha256": "0c3f9fa8659105ba468f7229fdecd2d42e5d1fa57d29e4e1bc5c7bbd4271564c",
+      "transformed": true
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\prospective_exact_source_v7_1_20261002\\validity_review\\prospective_validity_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_prospective_v7_1_validity_report_20261002.md",
+      "sha256": "1d47e232836ef0ce4d7b7134caec59086559a1a110d33eb5f9078c7075f4dfd5",
+      "transformed": true
+    },
+    {
+      "source": "generated_index",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\prospective_exact_source_v7_1_20261002\\README.md",
+      "sha256": "3b9edaf5b552c3e53521173efd1eac67d6356385c9c10426d54ed6bfe85d18e5",
+      "transformed": true
+    }
+  ],
+  "primary_gate": "passed",
+  "semantic_validity": "needs_revision_before_confirmatory_use",
+  "raw_evidence_questions_answers_references_and_api_not_copied": true,
+  "git_commit": false,
+  "github_push": false
+}

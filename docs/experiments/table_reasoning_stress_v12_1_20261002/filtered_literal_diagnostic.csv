@@ -1,0 +1,15 @@
+﻿aid,question_key,condition,read_status,entity_and_value_match,primary_quality
+R0001,T02_filtered_max,live_normal,readable,1,2
+R0002,T09_filtered_max,live_normal,readable,0,0
+R0003,T07_filtered_max,live_normal,readable,0,0
+R0004,T05_filtered_max,live_normal,readable,1,2
+R0007,T08_filtered_max,live_table_distractor,readable,0,0
+R0016,T05_filtered_max,live_table_distractor,readable,1,2
+R0018,T02_filtered_max,live_table_distractor,readable,1,2
+R0019,T06_filtered_max,live_table_distractor,readable,1,2
+R0020,T06_filtered_max,live_normal,readable,1,2
+R0021,T03_filtered_max,live_table_distractor,readable,1,2
+R0023,T09_filtered_max,live_table_distractor,readable,1,2
+R0026,T03_filtered_max,live_normal,readable,1,2
+R0031,T08_filtered_max,live_normal,readable,1,2
+R0036,T07_filtered_max,live_table_distractor,readable,0,0

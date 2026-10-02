@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T11:01:06.612320+00:00",
+  "checked_questions": 17,
+  "checked_screening_records": 68,
+  "checked_fresh_generations": 68,
+  "checked_api_records": 425,
+  "all_response_ids_unique": true,
+  "exact_MinerU_source_spans_replayed": true,
+  "public_only_construction_replayed": true,
+  "all_original_source_positions_preserved": true,
+  "no_numbers_or_units_edited": true,
+  "qualification_before_answers": true,
+  "all_exclusions_retained": true,
+  "normal_monitor_and_reference_unchanged": true,
+  "stress_plans_excluded_from_monitor": true,
+  "generation_payload_question_and_context_only": true,
+  "scoring_derivation_replayed": true,
+  "scope": "dataflow_integrity_not_independent_reference_truth_or_change_point_validation"
+}

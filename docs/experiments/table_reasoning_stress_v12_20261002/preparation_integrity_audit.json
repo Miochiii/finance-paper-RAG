@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T12:25:53.045674+00:00",
+  "new_questions": 27,
+  "source_papers": 9,
+  "task_types": [
+    "difference",
+    "ratio",
+    "filtered_max"
+  ],
+  "source_tables": 9,
+  "structural_paired_questions": 15,
+  "intact_field_matched_distractor_tables": 5,
+  "all_source_cell_coordinates_verified": true,
+  "Decimal_arithmetic_checked_by_independent_Fraction_rounding": true,
+  "all_original_source_tables_preserved": true,
+  "no_reference_values_or_paper_titles_in_distractor_ranking": true,
+  "all_candidates_pending": true,
+  "test_generations_collected": 0,
+  "scope": "source_coordinates_and_calculation_derivation_not_independent_semantic_truth"
+}

@@ -1,0 +1,131 @@
+{
+  "saved_at": "2026-10-02T09:30:37.340081+00:00",
+  "copied_files": 24,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_live_evidence_pairs.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_live_evidence_pairs.py",
+      "sha256": "1a6e1fa5339a0d7753013581577ff31b7b3ee31077ab34728fb29060f0254dfa"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_live_evidence_pairs.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_live_evidence_pairs.py",
+      "sha256": "9669f48385f7ae2bd44833296661d659157db4cce325033bbdf53d2933ff1f21"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_live_evidence_pairs.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_live_evidence_pairs.py",
+      "sha256": "86d00ec393f364e6d7b193014cfc27749b1b80f0a456f8fd0140be0d456daaa0"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_live_evidence_pairs.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_live_evidence_pairs.py",
+      "sha256": "691cb3339dc8c79fddd3f9f842036fdcbba22c4f5bf3b77f58cfc7bcfe396aba"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\diagnose_rag_live_evidence_literals.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\diagnose_rag_live_evidence_literals.py",
+      "sha256": "3fff544af4c8d3bb9ad76e6367effbc1b03e8ee8a39a3ef5f3d7eef7baaa60a7"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_diagnose_rag_live_evidence_literals.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_diagnose_rag_live_evidence_literals.py",
+      "sha256": "6982462ade7508e812f798094165c70be81364fb6e5913a926c0b16c3c1d5cf7"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_live_evidence_pairs.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_live_evidence_pairs.py",
+      "sha256": "6e7a3323b1d2584fea01fb98bca5030f9d527992cc01ad656ed25ab165b42d8a"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\analysis_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\analysis_summary.json",
+      "sha256": "e56be3ea525be69da58651f97e98542a5d81f28554b5a91a0dc010af0582fbc0"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\integrity_audit.json",
+      "sha256": "c9ab2a7167fdf3c423c31f9f85a8e8ff6ce9743ea9f178928f03f195d371e369"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\targeted_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\targeted_tests.json",
+      "sha256": "f9c51f5c6fdee2003c95ad1def8eb1673117811fc5029d33c7376daaabab3db6"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\diagnostic_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\diagnostic_tests.json",
+      "sha256": "bd2c7d9c5bb4ff6c9345fda5dd531bb0cf6fd23c4ab2143eefbd9bcb60eec7da"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\answer_scores.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\answer_scores.csv",
+      "sha256": "10b90bb1bbf4ad130f4fdf6a3079dc564cad19c793aca2fef124e2c9ceabd557"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\paired_quality.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\paired_quality.csv",
+      "sha256": "98bc09e75bc3957c24a02a92b891940db117d89ee9f9bb826d6f3ea00f9a5ba5"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\signal_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\signal_metrics.csv",
+      "sha256": "f902ee6b5be28a58a4b829acbe308eedf44db3a76be537c95c12a50ff7a8e5d2"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\source_groups.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\source_groups.csv",
+      "sha256": "35e553dfad127e390afe7247aa4df8220736162e953a7dc709c222805109cd0e"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\intervention_screening.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\intervention_screening.json",
+      "sha256": "41afc1acc345159ea94333e3d2a6ce16c2a1ce38f5ebe0dbbdaa51bc41072f34"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\intervention_screening.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\intervention_screening.csv",
+      "sha256": "e83a1b9ec36faf07b3df946f656a55f999ea47b0624946d12f17a18c1053fb17"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\literal_diagnostic_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\literal_diagnostic_summary.json",
+      "sha256": "c838b434e54a964c530f2017f5405ac8c7ab9ac082239dda1162fe47249e616e"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\workflow_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\live_evidence_pairs_v9_20261002\\workflow_summary.json",
+      "sha256": "e1b9fa38ed77d1b4138035ce9d8770c894639adb0030136d102e9a307a7198bf"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\live_evidence_results.png",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_live_evidence_v9_20261002.png",
+      "sha256": "767ae70d989a6b4697c0a0602f8d1f56fb31a8005cc3beea1bb1207db960c996"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\live_evidence_results.svg",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_live_evidence_v9_20261002.svg",
+      "sha256": "dcaa513678ee8b5600cb249c97fea1bc64600d04da5433cb1eb5a519e02baeca"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\log\\真实数值证据故障V9协议_20261002.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_live_evidence_v9_protocol_20261002.md",
+      "sha256": "6eb1f8cb928a32c95d3a0f364773a62fb0dcb6a862023879c61361c057b5c9ec"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\live_evidence_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_live_evidence_v9_report_20261002.md",
+      "sha256": "5b53348bbd3754c5c74f5797669a16fc5d64746c9bfdeb120a0df4f1551b237c"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\live_evidence_pairs_v9_20261002\\live_evidence_addendum.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_live_evidence_v9_addendum_20261002.md",
+      "sha256": "f421fccbfafe4d88f34b9807bc19269aefea633b0f851c8cafb3728deb4b7f4e"
+    }
+  ],
+  "gate": "passed",
+  "raw_questions_references_evidence_answers_and_api_not_copied": true,
+  "all_screening_failures_retained_locally": true,
+  "git_commit": false,
+  "github_push": false
+}

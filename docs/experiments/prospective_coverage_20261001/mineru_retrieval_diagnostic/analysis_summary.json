@@ -1,0 +1,17 @@
+{
+  "questions": 12,
+  "documents": 29,
+  "chunks": 2014,
+  "api_calls": 0,
+  "cache_all_quotes": 3,
+  "retrieved_all_quotes": 7,
+  "full_visible_mineru_all_quotes": 12,
+  "total_points": 40,
+  "cache_quote_matches": 14,
+  "retrieved_quote_matches": 30,
+  "whole_visible_source_quote_matches": 40,
+  "improved_questions": 6,
+  "worsened_questions": 0,
+  "original_semantically_complete": 6,
+  "interpretation": "literal_quote_availability_only_not_semantic_coverage_or_answer_accuracy"
+}

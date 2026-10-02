@@ -1,0 +1,19 @@
+{
+  "recorded_at": "2026-10-02T12:35:42.307414+00:00",
+  "status": "automatic_approval_rejected_specific_batch_scope_pending",
+  "rejection_reason": "Existing continue/network authorization did not explicitly cover transmission of the new standard facts and paper evidence to this external API.",
+  "requested_endpoint": "https://api.deepseek.com",
+  "new_questions": 27,
+  "target_papers": 9,
+  "evidence_papers": 11,
+  "maximum_admission_requests": 108,
+  "maximum_fresh_answers": 54,
+  "usual_maximum_logical_requests": 378,
+  "maximum_logical_requests_including_repairs": 810,
+  "network_retry_limit": 1,
+  "API_requests_performed": 0,
+  "fresh_generations": 0,
+  "user_input_request_sent": true,
+  "previous_V11_authorization_limit_not_reused": true,
+  "no_experiment_quality_conclusions_yet": true
+}

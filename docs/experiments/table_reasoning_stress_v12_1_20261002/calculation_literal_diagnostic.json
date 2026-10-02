@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "checked_at": "2026-10-02T14:13:31.776669+00:00",
+  "calculated_answers": 28,
+  "readable": 28,
+  "unreadable_U": 0,
+  "numeric_matches": 25,
+  "numeric_mismatches": 3,
+  "explicit_unit_conflicts": 0,
+  "primary_complete_but_numeric_mismatch": 0,
+  "scopes": {
+    "ratio": 14,
+    "difference": 14
+  },
+  "no_gold_used_to_select_answer_number": true,
+  "primary_grades_changed": false,
+  "limitation": "checks_only_explicit_third_field_numeric_literal_and_obvious_explicit_unit_conflicts_not_all_answer_semantics"
+}

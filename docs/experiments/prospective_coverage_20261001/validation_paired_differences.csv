@@ -1,0 +1,7 @@
+﻿qid,condition,baseline_quality,variant_quality,quality_declined,variant_refusal,baseline_signal,variant_signal,delta_gap512,delta_gap4096
+fin_007,semantic_partial,2,U,,0,complete,complete,-0.00134963712024094,-0.0009566435967255647
+fin_007,retained_evidence_prefix,2,2,False,0,complete,U,-0.0008004398624728878,-0.0006775292889454956
+fin_013,semantic_partial,2,1,True,0,U,incomplete,0.0006648529931431689,0.00020454003633798342
+fin_013,retained_evidence_prefix,2,2,False,0,U,U,0.4647784647045903,0.0034143926376904677
+fin_022,semantic_partial,U,1,,0,U,U,0.0,-0.0007290516512729402
+fin_022,retained_evidence_prefix,U,U,,0,U,U,0.0022819852381988914,0.002178361965957577

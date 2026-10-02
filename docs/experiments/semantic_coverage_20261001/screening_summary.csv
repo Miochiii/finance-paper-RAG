@@ -1,0 +1,10 @@
+﻿qid,cohort,eligible,attempts,target_index,deleted_chars
+fin_005,development,1,1,2,248
+fin_006,development,1,1,2,356
+fin_012,development,0,4,,
+fin_016,development,0,2,,
+fin_021,development,1,2,1,360
+fin_025,development,1,1,1,411
+fin_013,new_source_check,0,2,,
+fin_023,new_source_check,0,0,,
+fin_024,new_source_check,0,2,,

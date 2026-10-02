@@ -1,0 +1,8 @@
+{
+  "status": "failed_offline_source_gate",
+  "recorded_at": "2026-10-02T12:28:56.715988+00:00",
+  "API_requests": 0,
+  "fresh_generations": 0,
+  "scope": "source_cells_and_math_valid_but_distractor_source_count_below_frozen_gate",
+  "next": "new_V12_1_presentation_normalization_and_corpus_fallback_keep_question_rules_and_gate"
+}

@@ -1,0 +1,13 @@
+﻿aid,qid,condition,cohort,target_index,quality,rule_refusal,v2_status,v3_status,v3_score,provenance,support_status
+B0001,fin_025,retained_evidence_prefix,development,1,2,0,complete,complete,0.0,new_v3_responses,supported
+B0002,fin_005,retained_evidence_prefix,development,2,2,0,U,complete,0.0,new_v3_responses,uncertain
+B0003,fin_025,baseline,development,1,2,0,complete,complete,0.0,new_v3_responses,supported
+B0004,fin_005,semantic_partial,development,2,1,0,U,incomplete,0.3333333333333333,new_v3_responses,mixed
+B0005,fin_006,semantic_partial,development,2,1,0,incomplete,incomplete,0.6666666666666666,new_v3_responses,supported
+B0006,fin_005,baseline,development,2,2,0,U,complete,0.0,new_v3_responses,uncertain
+B0007,fin_021,semantic_partial,development,1,1,0,complete,incomplete,0.5,new_v3_responses,supported
+B0008,fin_021,baseline,development,1,2,0,complete,complete,0.0,new_v3_responses,supported
+B0009,fin_021,retained_evidence_prefix,development,1,2,0,complete,complete,0.0,new_v3_responses,supported
+B0010,fin_025,semantic_partial,development,1,1,0,incomplete,incomplete,0.5,new_v3_responses,mixed
+B0011,fin_006,retained_evidence_prefix,development,2,2,0,complete,complete,0.0,new_v3_responses,uncertain
+B0012,fin_006,baseline,development,2,2,0,complete,complete,0.0,new_v3_responses,uncertain

@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-01T14:37:57.874007+00:00",
+  "total_unique_api_responses": 195,
+  "generated_answers": 12,
+  "actual_models": {
+    "deepseek-flash": 195
+  },
+  "total_tokens": 360073,
+  "generation_fields_match_raw_response": true,
+  "every_quality_and_proxy_score_recomputed": true,
+  "all_phase_audits_passed": true,
+  "revisions_use_same_development_answers": true,
+  "independent_validation": false
+}

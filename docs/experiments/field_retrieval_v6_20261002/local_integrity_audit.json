@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T05:17:45.990440+00:00",
+  "questions": 11,
+  "documents": 29,
+  "spans": 33,
+  "source_hashes_verified": true,
+  "public_query_projection_verified": true,
+  "raw_provenance_verified": true,
+  "api_responses": 0,
+  "fresh_answer_validation": "pending_external_data_authorization"
+}

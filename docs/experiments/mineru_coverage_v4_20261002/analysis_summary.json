@@ -1,0 +1,84 @@
+{
+  "questions": 12,
+  "answers": 25,
+  "metrics": [
+    {
+      "condition": "all",
+      "n": 25,
+      "complete": 6,
+      "incomplete": 6,
+      "quality_u": 13,
+      "proxy_u": 11,
+      "false_flags": 0,
+      "flagged_incomplete": 3,
+      "missed_incomplete": 1,
+      "unresolved_incomplete": 2,
+      "refusals": 0
+    },
+    {
+      "condition": "cached",
+      "n": 12,
+      "complete": 2,
+      "incomplete": 2,
+      "quality_u": 8,
+      "proxy_u": 6,
+      "false_flags": 0,
+      "flagged_incomplete": 1,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    },
+    {
+      "condition": "mineru_retrieved",
+      "n": 12,
+      "complete": 4,
+      "incomplete": 3,
+      "quality_u": 5,
+      "proxy_u": 5,
+      "false_flags": 0,
+      "flagged_incomplete": 1,
+      "missed_incomplete": 1,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    },
+    {
+      "condition": "known_omission_control",
+      "n": 1,
+      "complete": 0,
+      "incomplete": 1,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "false_flags": 0,
+      "flagged_incomplete": 1,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    }
+  ],
+  "scope_valid": 7,
+  "proxy_plans_valid": 7,
+  "cached_semantic_complete": 2,
+  "retrieved_semantic_complete": 5,
+  "quality_improved_pairs": 1,
+  "quality_worsened_pairs": 0,
+  "pair_quality_u": 8,
+  "gate": {
+    "status": "not_passed",
+    "checks": {
+      "scope_valid": false,
+      "retrieved_semantic_complete": false,
+      "proxy_available": false,
+      "no_complete_false_flags": true,
+      "enough_incomplete": true,
+      "incomplete_detection": false,
+      "omission_control": true
+    }
+  },
+  "api_responses": 189,
+  "failed_api_records": 0,
+  "total_tokens": 539156,
+  "models": {
+    "deepseek-flash": 189
+  },
+  "interpretation": "development_on_seen_12_questions_new_responses_not_held_out_test"
+}

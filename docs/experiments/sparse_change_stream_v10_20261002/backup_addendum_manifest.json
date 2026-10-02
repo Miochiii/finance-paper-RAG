@@ -1,0 +1,16 @@
+{
+  "saved_at": "2026-10-02T10:25:09.665569+00:00",
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\sparse_stream_conclusions.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_sparse_v10_conclusions_20261002.md",
+      "sha256": "559f3215a568cecd054953fea1be9ff3be377b42730b8f019ecff1eff7b43aa9"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\expanded_api_authorization.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\sparse_change_stream_v10_20261002\\expanded_api_authorization.json",
+      "sha256": "68f1fce980b0cfee4f09bfb4e0a79f1139f3c4d7cf17de5e0c710e051b569244"
+    }
+  ],
+  "raw_evidence_and_answers_not_copied": true
+}

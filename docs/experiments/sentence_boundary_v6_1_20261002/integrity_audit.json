@@ -1,0 +1,31 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T05:48:23.979681+00:00",
+  "questions": 11,
+  "source_documents": 29,
+  "cases": 55,
+  "fresh_generations": 22,
+  "api_records": 185,
+  "raw_payloads_reconstructed": true,
+  "raw_spans_source_scope_and_budgets_checked": true,
+  "normative_ranking_inputs_excluded": true,
+  "fixed_control_truth_rederived": true,
+  "all_scores_recomputed": true,
+  "pre_answer_phase_locks_checked": true,
+  "frozen_parent_files_unchanged": true,
+  "all_unresolved_cases_retained": true,
+  "boundary_config": {
+    "maximum_passage_characters": 2000,
+    "maximum_total_characters": 6000,
+    "maximum_passages": 3,
+    "boundary_search_characters": 256,
+    "boundaries": "Chinese_sentence_end_or_newline_outside_paired_math",
+    "keep_ranks": true,
+    "preserve_complete_contained_tables": true
+  },
+  "frozen_ranking_replayed": true,
+  "source_slice_boundary_repair_replayed": true,
+  "repaired_passages": 31,
+  "unresolved_passage_tails": 1,
+  "repair_success_gate_before_answers": true
+}

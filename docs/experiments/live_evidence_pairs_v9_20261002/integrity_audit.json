@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T09:24:53.719668+00:00",
+  "input_questions": 17,
+  "retained_screening_records": 17,
+  "qualified_pairs": 10,
+  "checked_api_records": 110,
+  "checked_fresh_generations": 20,
+  "all_response_ids_unique": true,
+  "intervention_spans_replayed": true,
+  "all_duplicate_quote_copies_replayed": true,
+  "residual_old_magnitudes_conservatively_rejected": true,
+  "blind_fault_qualification_before_test_answers": true,
+  "normal_references_and_monitor_plans_unchanged": true,
+  "fault_plans_excluded_from_monitor": true,
+  "generation_inputs_only_question_context": true,
+  "scoring_inputs_only_question_answer_basis_facts": true,
+  "mandatory_preflight_before_all_answers": true,
+  "all_unresolved_and_screening_failures_retained": true,
+  "scope": "dataflow_and_derivation_integrity_not_independent_reference_truth_or_stream_detector_validation"
+}

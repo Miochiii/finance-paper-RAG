@@ -1,0 +1,31 @@
+{
+  "saved_at": "2026-10-02T09:56:08.075830+00:00",
+  "stage": "completed_mean_phase_waiting_expanded_api_authorization",
+  "planned_generations": 2480,
+  "completed_fresh_generations": 80,
+  "remaining_generations": 2400,
+  "completed_scoring_api_responses": 20,
+  "score_inputs": 5,
+  "mean_metrics": {
+    "n": 80,
+    "complete": 80,
+    "bad": 0,
+    "quality_u": 0,
+    "proxy_u": 0,
+    "positives": 0,
+    "bad_flagged": 0,
+    "bad_refusals": 0,
+    "complete_false_flags": 0,
+    "complete_u": 0
+  },
+  "automatic_review_rejection": {
+    "action": "collect threshold phase 480 fresh answers",
+    "reason": "该步骤将同一批本地题目和证据扩展发送为480条新回答，远超此前明确授权的样本规模；敏感数据外发的新增数量与范围未获具体授权。",
+    "did_not_run": true
+  },
+  "user_authorization_question_sent": true,
+  "no_bypass_or_indirect_network_execution": true,
+  "no_threshold_or_test_result_yet": true,
+  "planned_methods_frozen": true,
+  "all_records_retained": true
+}

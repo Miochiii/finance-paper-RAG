@@ -1,0 +1,13 @@
+{
+  "recorded_at": "2026-10-02T07:49:59.350376+00:00",
+  "status": "passed",
+  "passed": 21,
+  "failed": 0,
+  "output": "21 passed in 1.11s",
+  "command": "python -m pytest -q -p no:cacheprovider tests/test_rag_guarded_new_question_validation.py tests/test_rag_numeric_unit_mapping.py tests/test_rag_objective_admission_guard.py",
+  "hashes": {
+    "E:\\file\\agent\\python.v\\project\\tests\\test_rag_guarded_new_question_validation.py": "d2ab370049be2766b155c5b70ec5c2d501328708a9e8aaa0844b63f380b32bab",
+    "E:\\file\\agent\\python.v\\project\\tests\\test_rag_numeric_unit_mapping.py": "497fbece9d1aeee474df092db5c72840449e83731e970aa3122237b94b8664d5",
+    "E:\\file\\agent\\python.v\\project\\tests\\test_rag_objective_admission_guard.py": "2b01cc3c95e01550d3d7e88a26ec2d164ed2d7ab3e74e8942efffbf58b650238"
+  }
+}

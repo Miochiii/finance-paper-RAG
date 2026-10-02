@@ -1,0 +1,26 @@
+{
+  "status": "completed_v12_1",
+  "completed_at": "2026-10-02T14:21:13.298017+00:00",
+  "questions": 21,
+  "target_sources": 7,
+  "fresh_answers": 42,
+  "automatic_complete": 35,
+  "quality_errors": 7,
+  "bad_flagged": 7,
+  "complete_false_flags": 0,
+  "quality_U": 0,
+  "monitor_U": 1,
+  "arithmetic_literal_check": "frozen_before_answers",
+  "filtered_literal_check": "post_hoc_supplement",
+  "total_logical_API_records": 318,
+  "actual_models": {
+    "deepseek-flash": 318
+  },
+  "candidates_still_pending": true,
+  "earlier_results_unchanged": true,
+  "no_detector_or_threshold_change": true,
+  "new_change_point_sequence_executed": false,
+  "next_stage": "new_version_unit_and_quote_rules_then_independent_grouped_baseline",
+  "git_commit": false,
+  "github_push": false
+}

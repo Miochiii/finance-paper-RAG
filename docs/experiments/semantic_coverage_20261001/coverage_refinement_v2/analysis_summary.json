@@ -1,0 +1,73 @@
+{
+  "metrics": [
+    {
+      "cohort": "development",
+      "n": 12,
+      "determinate": 9,
+      "incomplete": 4,
+      "flagged_incomplete": 2,
+      "missed_incomplete": 1,
+      "unresolved_incomplete": 1,
+      "complete": 8,
+      "flagged_complete": 0,
+      "unresolved_complete": 2
+    },
+    {
+      "cohort": "new_source_check",
+      "n": 0,
+      "determinate": 0,
+      "incomplete": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "complete": 0,
+      "flagged_complete": 0,
+      "unresolved_complete": 0
+    }
+  ],
+  "n": 12,
+  "api_requests": 37,
+  "actual_models": {
+    "deepseek-flash": 37
+  },
+  "total_tokens": 95854,
+  "groups": [
+    {
+      "condition": "baseline",
+      "n": 4,
+      "signals": {
+        "complete": 3,
+        "U": 1
+      },
+      "support": {
+        "supported": 2,
+        "uncertain": 2
+      }
+    },
+    {
+      "condition": "semantic_partial",
+      "n": 4,
+      "signals": {
+        "U": 1,
+        "incomplete": 2,
+        "complete": 1
+      },
+      "support": {
+        "mixed": 2,
+        "supported": 2
+      }
+    },
+    {
+      "condition": "retained_evidence_prefix",
+      "n": 4,
+      "signals": {
+        "complete": 3,
+        "U": 1
+      },
+      "support": {
+        "supported": 2,
+        "uncertain": 2
+      }
+    }
+  ]
+}

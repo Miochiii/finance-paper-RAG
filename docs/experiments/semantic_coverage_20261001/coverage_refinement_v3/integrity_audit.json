@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-01T14:36:42.815167+00:00",
+  "exact_source_spans_verified": true,
+  "answer_quote_validation_and_two_round_agreement_checked": true,
+  "proxy_schema_checked": true,
+  "all_cases_retained": true,
+  "new_responses": 24,
+  "prospective_validation": false,
+  "no_annotated_facts_in_proxy_requests": true
+}

@@ -1,0 +1,9 @@
+﻿qid,cohort,condition,baseline_quality,variant_quality,quality_declined,variant_refusal,baseline_direct,variant_direct,baseline_retrieval,variant_retrieval,delta_gap512,delta_gap4096,delta_retrieval_score
+fin_005,development,semantic_partial,2,1,True,0,U,U,U,U,0.04964418703753576,0.02888680805719531,
+fin_005,development,retained_evidence_prefix,2,2,False,0,U,U,U,complete,0.08135717174851063,-0.00024742755687520105,
+fin_006,development,semantic_partial,2,1,True,0,complete,complete,complete,incomplete,-6.489835994909958e-05,-0.0002784264577887335,0.5
+fin_006,development,retained_evidence_prefix,2,2,False,0,complete,complete,complete,incomplete,0.06788876221384989,-0.0003561114224716115,0.1
+fin_021,development,semantic_partial,2,1,True,0,complete,U,complete,incomplete,0.06563060289175812,0.045183362478992156,0.16666666666666666
+fin_021,development,retained_evidence_prefix,2,2,False,0,complete,complete,complete,incomplete,0.13489091526802724,-0.04273268044646211,0.5
+fin_025,development,semantic_partial,2,1,True,0,U,U,U,U,0.005660227789057027,0.0008437487177820726,
+fin_025,development,retained_evidence_prefix,2,2,False,0,U,U,U,U,0.8638731196278725,0.0009188436620394234,

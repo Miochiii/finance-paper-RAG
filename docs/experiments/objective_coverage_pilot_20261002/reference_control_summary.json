@@ -1,0 +1,34 @@
+{
+  "n": 33,
+  "exact": 33,
+  "errors": 0,
+  "u": 0,
+  "predicted": {
+    "0": 11,
+    "1": 11,
+    "2": 11
+  },
+  "by_condition": {
+    "control_complete": {
+      "n": 11,
+      "exact": 11
+    },
+    "control_omitted": {
+      "n": 11,
+      "exact": 11
+    },
+    "control_corrupted": {
+      "n": 11,
+      "exact": 11
+    }
+  },
+  "gate": {
+    "status": "passed",
+    "checks": {
+      "enough_controls": true,
+      "exact_quality": true,
+      "available": true
+    }
+  },
+  "interpretation": "scoring_given_verified_facts_only_not_retrieval_or_live_fault_detection"
+}

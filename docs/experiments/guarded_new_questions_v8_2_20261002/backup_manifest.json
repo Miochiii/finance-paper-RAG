@@ -1,0 +1,217 @@
+{
+  "saved_at": "2026-10-02T08:57:03.098498+00:00",
+  "copied_files": 34,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_guarded_new_question_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_guarded_new_question_validation.py",
+      "sha256": "e80da65beed335f0adc25804f11d693c8b60bd3598ce4ae5ff7d7a01e67694fe",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_guarded_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_guarded_validation.py",
+      "sha256": "c3a3315ffed8ab1800fc438f25afe132583b888dbc4681b389ea15d7736f7c79",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_guarded_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_guarded_validation.py",
+      "sha256": "fb0d85c3850dacf6bdb58d62fe58e3246be992c21cf7964813d44e8ff78436cf",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_guarded_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_guarded_validation.py",
+      "sha256": "f957e6243963776cbb7af46c7931d06de32b107498c90c322e1fe496c7a53df5",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_percent_fact_guard.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_percent_fact_guard.py",
+      "sha256": "899ef16b7000db58ba91140905fe745d5a6856841103e22d562ae332b18d563d",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_guarded_percent_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_guarded_percent_validation.py",
+      "sha256": "1ffeace1a77745591ce315abc6673f0a58a8ff5f7a9d98ebb3c1c824971916e6",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_guarded_percent_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_guarded_percent_validation.py",
+      "sha256": "60114585521352da621996da0e48f24cf63c087e80afd7078e4084d323f328bd",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_guarded_percent_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_guarded_percent_validation.py",
+      "sha256": "26ee94650157d6a51dcf5942096e902dcb556ec7304a09a10996d41c2ca797d3",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_candidate_context_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_candidate_context_revision.py",
+      "sha256": "b121fa5c46700763478a1558e93fcc33d730106cde89bf29d866500e2a853140",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_candidate_context_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_candidate_context_validation.py",
+      "sha256": "3b5ef5b1217a1337f1608e487f2f4aab7b10521d240fafc7c6bfafd6606611e1",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_candidate_context_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_candidate_context_validation.py",
+      "sha256": "ed418bd7dfb0cffee52e846f838a8103572908835dad9e8b42c0bb5cbbc5be98",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_candidate_context_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_candidate_context_validation.py",
+      "sha256": "18ac731eb353321fce71c194ecc86c3ac9093fd1de7a4ddf2789871a4fd33f22",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_guarded_new_question_validation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_guarded_new_question_validation.py",
+      "sha256": "d2ab370049be2766b155c5b70ec5c2d501328708a9e8aaa0844b63f380b32bab",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_percent_fact_guard.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_percent_fact_guard.py",
+      "sha256": "19e301ca028bdb82ba3a5d0f12775e96180cd664fd7e6031100b26c1cbcaf448",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_candidate_context_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_candidate_context_revision.py",
+      "sha256": "a332fb60c082290628149a7d1d6e2a285bcd8e1ac5dad2cb3983072948f00507",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_table_axis_clarification.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_table_axis_clarification.py",
+      "sha256": "3c1909abedd73040383463971549f567ba2532e65d00f1a185cdf8367f39d8b3",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_axis_clarification.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_table_axis_clarification.py",
+      "sha256": "edb92a3b71ec4186abca68528d8a104325665756f0d6b2cc9ce4b33716ec5fea",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\analysis_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\analysis_summary.json",
+      "sha256": "8302a84d532320c19da2576f7cec8bc868adc8520bc24e278e31e86b358df978",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\integrity_audit.json",
+      "sha256": "cdea2aa89c7a6f0ed73b793216d5ec71b457a23f97ae7ff1fb70acfaaf955bd6",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\targeted_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\targeted_tests.json",
+      "sha256": "ab7e1415b520dd928b3488c71fc5efc2cef8a3439b61de3f7088cead53d3b528",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\candidate_screening.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\candidate_screening.csv",
+      "sha256": "594d4bd60a5be32667dd88cd6131d087ea2a780367e9e75b3512d850aab3dfc6",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\admission_diagnostic.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\admission_diagnostic.csv",
+      "sha256": "e250514ec3cc5bf2063bbc5da77dae5809d1046c72e5cfe9b8faa0758de6fe94",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\source_exposure.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\source_exposure.csv",
+      "sha256": "1e52caec0a97dd2e9368d131a505ff96c4a2a14a793e0d6bcea2f06ce5e43fb4",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\answer_scores.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\answer_scores.csv",
+      "sha256": "cdec4f57f9f0238045baf85b59a564caff31e0075954de5a2d2b9d3f6156230c",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\signal_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\signal_metrics.csv",
+      "sha256": "f638b783bfe1aedb825f0351ffffb8031f3649989013348a42ec8d2feaea79fa",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\proxy_basis_availability.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\proxy_basis_availability.csv",
+      "sha256": "e887d9017c09db38de7489558666115fe087c201b9b38cb32b66990b7eb9325f",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\live_source_groups.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\live_source_groups.csv",
+      "sha256": "1ce856b1aa816384ed84b647d8bf89362d879f6fcff0a865f586ed687068ce14",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\workflow_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\workflow_summary.json",
+      "sha256": "f5be3e5634ccb9420db8ccc0ef4499610ad1d3cc5fe6e9b363c4cc621dc75383",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\table_axis_clarification_20261002\\axis_pair_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\table_axis_clarification_20261002\\axis_pair_summary.json",
+      "sha256": "29e4ff7f4f33cda03ab3c8c4771e890dd59355c7b79f7c9f1a488e9f0649326a",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\table_axis_clarification_20261002\\integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_2_20261002\\table_axis_clarification_20261002\\integrity_audit.json",
+      "sha256": "737383f41bc8a4e07f14268e28e42e6f9ab014d0606a741a8404edc9392916cb",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\guarded_validation_results.png",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_guarded_v8_2_20261002.png",
+      "sha256": "5265fd15f1dd0e02e49ab4de983c8a4ecdcac62ae3cc5e66a92ea7018bce3aeb",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\guarded_validation_results.svg",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_guarded_v8_2_20261002.svg",
+      "sha256": "7e49514720b61fa62b4e3706d303c9670a8a4115b350d3436de364a12f3a94ea",
+      "transformed": false
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\log\\新题来源盲提取验证V8_2协议_20261002.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_guarded_v8_2_protocol_20261002.md",
+      "sha256": "12d350327c1748c9385d4d5769c3fb6b079436219d5e8fde0b3d51fcffa548a3",
+      "transformed": true
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\guarded_new_questions_v8_2_20261002\\guarded_validation_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_guarded_v8_2_report_20261002.md",
+      "sha256": "82d07c03ba3abe2fac861ccb4c10389692fd2677c68a0f69ea460c27b4aeb50d",
+      "transformed": true
+    }
+  ],
+  "primary_gate": "passed",
+  "mandatory_preflight": "passed",
+  "interpretation": "prospective_new_test_questions_existing_sources_previously_prepared_cards_same_vendor_automatic_truth",
+  "previous_failed_and_preparation_records_preserved": true,
+  "raw_questions_references_answers_source_cards_and_api_not_copied": true,
+  "git_commit": false,
+  "github_push": false
+}

@@ -167,7 +167,8 @@ class TestNoLookahead:
         assert u[-1] == pytest.approx(1.0)
 
     def test_fit_unit_constant_calibration(self):
-        assert np.allclose(ed.fit_unit(np.array([0.3, 0.3]), np.array([0.3, 0.9])), 0.5)
+        assert np.allclose(ed.fit_unit(np.array([0.3, 0.3]), np.array([0.3, 0.9])),
+                           [0.5, 1.0])
 
 
 class TestDriftInjection:
@@ -463,6 +464,15 @@ class TestE3Weights:
         got = float((ed.first_alarm(M, thr) > 0).mean())
         assert abs(got - 0.10) < 0.05
 
+    def test_fixed_weight_row_reports_its_actual_threshold(self):
+        null = np.random.default_rng(44).uniform(0, 1, size=(20, 30, 2))
+        rows = ed.run_e3_weights([("uniform", {"kind": "fixed", "w": None})],
+                                 null, [], [0.5, 0.5], ed.lambda_grid(0.5),
+                                 alpha=0.05, alpha_edd=0.01, at=10,
+                                 match_far=0.1)
+        fixed = next(r for r in rows if r["calib"] == "fixed")
+        assert fixed["threshold"] == 100.0
+
     def test_load_proxy_prior_falls_back_to_uniform(self):
         w, src = ed.load_proxy_prior(["a", "b", "c"], path="no_such_file.csv")
         assert np.allclose(w, [1 / 3, 1 / 3, 1 / 3])
@@ -521,6 +531,22 @@ class TestE6Compare:
         # 用各流自己的头做参考 → 无漂移时统计量不应整段饱和
         assert s[:, 120:].max() < 0.95
 
+    def test_reference_window_cannot_look_ahead(self):
+        x = np.tile(np.linspace(0.0, 1.0, 200), (2, 1))
+        s = ed.method_score("ks_window", x, x[0, :40],
+                            window=40, stride=5, ref_len=100)
+        assert np.isneginf(s[:, :100]).all()
+        assert np.isfinite(s[:, 100:]).all()
+
+    def test_false_alarm_is_measured_on_heldout_streams(self):
+        train = np.vstack([np.zeros(30), np.ones(30)])
+        heldout = np.zeros((2, 30))
+        rows = ed.run_e6_compare(["cusum"], train, [], np.array([0.0, 1.0]),
+                                 [0.5], ed.lambda_grid(0.5), at=10,
+                                 target_far=0.5, null_eval_streams=heldout)
+        assert rows[0]["alarm_rate"] == 0.0
+        assert rows[0]["n_calibration_reps"] == 2
+
 
 class TestE7Dependence:
     """E7：非 iid 稳健性（相依生成器、诊断量、相依感知上界）。"""
@@ -562,6 +588,49 @@ class TestE7Dependence:
                                     rng=np.random.default_rng(64), window=10)
         assert len(rows) == 2 and all(r["experiment"] == "e7_dependence" for r in rows)
         assert all("alarm_rate_base_0.05" in r and "edd_aware" in r for r in rows)
+
+
+class TestExperimentProtocol:
+    def test_disjoint_windows_do_not_reuse_queries_or_cross_split(self):
+        raw = np.concatenate([np.arange(15, dtype=float),
+                              np.arange(100, 115, dtype=float)])
+        data, cut = ed.prepare_proxy_split(raw, 0.5, 4,
+                                           np.random.default_rng(0), shuffle=False,
+                                           window_mode="disjoint")
+        assert cut == 3
+        assert data.shape == (6,)
+        assert np.allclose(data[:cut], [1.5 / 14, 5.5 / 14, 9.5 / 14])
+        assert np.all(data[cut:] == 1.0)
+
+    def test_constant_calibration_preserves_new_events(self):
+        got = ed.fit_unit(np.zeros(4), np.array([0.0, 1.0, -1.0]))
+        assert np.array_equal(got, np.array([0.5, 1.0, 0.0]))
+
+    def test_windows_do_not_cross_calibration_boundary(self):
+        raw = np.concatenate([np.arange(15, dtype=float),
+                              np.arange(100, 115, dtype=float)])
+        data, cut = ed.prepare_proxy_split(raw, 0.5, 4,
+                                           np.random.default_rng(0), shuffle=False)
+        assert cut == 12
+        assert data.shape == (24,)
+        assert data[:cut].max() < 1.0
+        assert np.all(data[cut:] == 1.0)
+
+    def test_binomial_bound_rejects_continuous_proxy(self):
+        calib = np.array([0.1, 0.2, 0.3, 0.4])
+        with pytest.raises(ValueError, match="0/1"):
+            ed.estimate_m(calib, "binom")
+        assert all(label != "binom" for label, _ in
+                   ed.m_grid_from_calib(calib, ["binom", "hoeffding"]))
+
+    def test_binomial_all_successes_has_upper_bound_one(self):
+        assert ed.estimate_m(np.ones(20), "binom") == 1.0
+
+    def test_right_censored_mean_differs_from_alarm_only_mean(self):
+        stats = ed.arl_stats(np.array([1, 0]), horizon=10)
+        assert stats["arl_mean"] == 1.0
+        assert stats["arl_restricted_mean"] == 6.0
+        assert stats["censored"] == 1
 
 
 class TestSimulation:

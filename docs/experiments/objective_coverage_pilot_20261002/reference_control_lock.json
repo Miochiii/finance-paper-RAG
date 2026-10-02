@@ -1,0 +1,16 @@
+{
+  "locked_at": "2026-10-02T03:22:19.138305+00:00",
+  "hashes": {
+    "E:\\file\\agent\\python.v\\project\\rag_objective_reference_check.py": "4e63c6e31db0f49a6d70bcbe74a818bf551ef9ef101e5a831a9db988c9cdfaf8",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\protocol_lock.json": "f3deacc65c16438b16a2c052bdaadbb92681bcff9de10e894858fe8d538037fb",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\questions_lock.json": "fd7e7e26dbbd854f3822d8845b653672a1c18901a6a9b6352ba53858ec96516e",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\proxy_lock.json": "85b806f53fe10a3005b0972cce9889959c803cc20184448449583a1453535bae",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\answer_cases_lock.json": "d922c9b51f57dc2223943addbd1e03daffc71c526c560a5bf2f1c9c5d2d8815d"
+  },
+  "minimum_controls": 30,
+  "minimum_exact_quality_fraction": 0.95,
+  "maximum_u_fraction": 0.1,
+  "purpose": "isolate_scorer_with_source_verified_facts_not_annotation_free_proxy",
+  "no_answers_seen": true,
+  "comparison_prompts_and_validation_functions_unchanged": true
+}

@@ -1,0 +1,7 @@
+{
+  "checked_at": "2026-10-02T09:51:21.302993+00:00",
+  "exit_code": 0,
+  "passed": 25,
+  "command": "python -m pytest -q -p no:cacheprovider tests/test_rag_sparse_change_stream.py tests/test_compare_rag_fresh_detectors.py tests/test_rag_live_evidence_pairs.py tests/test_rag_field_refusal.py",
+  "includes_source_split_schedule_causality_U_policy_and_calibration_block": true
+}

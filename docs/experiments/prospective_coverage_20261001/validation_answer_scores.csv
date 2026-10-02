@@ -1,0 +1,10 @@
+﻿aid,qid,condition,target_index,quality,rule_refusal,signal_status,signal_score,support_status,gap512,gap4096,truncated512,truncated4096
+V0001,fin_007,semantic_partial,2,U,0,complete,0.0,supported,0.003350423414809838,0.0017477857726837605,True,False
+V0002,fin_022,baseline,4,U,0,U,,supported,0.0011879054941163418,0.003551884549034501,True,False
+V0003,fin_007,baseline,2,2,0,complete,0.0,uncertain,0.004700060535050778,0.002704429369409325,True,False
+V0004,fin_022,retained_evidence_prefix,4,U,0,U,,uncertain,0.003469890732315233,0.005730246514992078,True,False
+V0005,fin_022,semantic_partial,4,1,0,U,,supported,0.0011879054941163418,0.002822832897761561,True,False
+V0006,fin_013,semantic_partial,2,1,0,incomplete,0.25,supported,0.009376237450848677,0.004485794577039704,True,False
+V0007,fin_007,retained_evidence_prefix,2,2,0,U,,supported,0.00389962067257789,0.0020269000804638295,True,False
+V0008,fin_013,retained_evidence_prefix,2,2,0,U,,supported,0.4734898491622958,0.007695647178392188,True,False
+V0009,fin_013,baseline,2,2,0,U,,supported,0.008711384457705508,0.00428125454070172,True,False

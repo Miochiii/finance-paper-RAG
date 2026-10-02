@@ -1,0 +1,2 @@
+﻿question_key,condition,quality,proxy,field_refusal,cause,source_end_year_available_after_window,covered_fields,partial_fields,next_step
+O0011,live_enhanced,1,U,0,fixed_character_window_cuts_sample_end_year,1,2,1,new_version_sentence_complete_chunk_boundaries_and_new_response_validation

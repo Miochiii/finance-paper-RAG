@@ -1,0 +1,7 @@
+﻿task_type,condition,n,complete,bad,quality_u,proxy_u,bad_flagged,bad_missed,bad_unresolved,complete_false_flags,complete_proxy_u,refusals,bad_without_refusal,bad_without_refusal_flagged
+difference,live_normal,7,7,0,0,0,0,0,0,0,0,0,0,0
+difference,live_table_distractor,7,7,0,0,0,0,0,0,0,0,0,0,0
+ratio,live_normal,7,5,2,0,0,2,0,0,0,0,0,2,2
+ratio,live_table_distractor,7,6,1,0,0,1,0,0,0,0,0,1,1
+filtered_max,live_normal,7,5,2,0,1,2,0,0,0,1,0,2,2
+filtered_max,live_table_distractor,7,5,2,0,0,2,0,0,0,0,0,2,2

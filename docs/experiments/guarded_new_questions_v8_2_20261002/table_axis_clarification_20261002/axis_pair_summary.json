@@ -1,0 +1,29 @@
+{
+  "checked_at": "2026-10-02T08:53:38.333710+00:00",
+  "scope": "one_seen_case_two_fresh_answers_same_evidence",
+  "rows": [
+    {
+      "condition": "original",
+      "quality": "0",
+      "proxy": "incomplete",
+      "source_basis": true,
+      "actual_model": "deepseek-flash",
+      "finish": "stop"
+    },
+    {
+      "condition": "clarified",
+      "quality": "2",
+      "proxy": "complete",
+      "source_basis": true,
+      "actual_model": "deepseek-flash",
+      "finish": "stop"
+    }
+  ],
+  "raw_matrix_targets_programmatically_checked": true,
+  "source_text_not_pdf_truth": true,
+  "primary_v8_2_results_unchanged": true,
+  "original_quality_is_conditional_on_third_column": true,
+  "no_claim_of_general_improvement": true,
+  "no_change_to_retrieval_context": true,
+  "preflight": "passed"
+}

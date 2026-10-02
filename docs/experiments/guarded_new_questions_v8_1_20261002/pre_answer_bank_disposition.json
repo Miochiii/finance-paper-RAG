@@ -1,0 +1,12 @@
+{
+  "recorded_at": "2026-10-02T08:11:08.233287+00:00",
+  "status": "bank_gate_not_passed",
+  "attempts": 24,
+  "qualified_questions": 5,
+  "qualified_sources": 4,
+  "test_answers_generated": 0,
+  "all_candidates_retained": true,
+  "reason": "candidate_generation_treats_old_questions_as_requirements_instead_of_deduplication_context",
+  "next_revision": "remove_old_questions_from_generation_payload_keep_programmatic_deduplication",
+  "same_prepared_source_cards_reused_before_any_test_answer": true
+}

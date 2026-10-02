@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T14:13:32.185031+00:00",
+  "checked_fresh_generations": 42,
+  "checked_API_records": 276,
+  "candidate_checks_and_blind_grid_derivations_replayed": true,
+  "normal_monitor_grid_independent_of_candidate_reference_payload": true,
+  "shared_public_arithmetic_rule": true,
+  "all_response_IDs_unique": true,
+  "all_U_and_preanswer_exclusions_retained": true,
+  "mandatory_preflight_before_answers": true,
+  "scope": "dataflow_integrity_not_independent_truth_or_change_point_detection"
+}

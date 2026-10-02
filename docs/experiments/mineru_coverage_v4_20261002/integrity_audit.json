@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T02:37:15.063564+00:00",
+  "questions": 12,
+  "fresh_answers": 25,
+  "unique_api_responses": 189,
+  "source_hashes_checked": 29,
+  "actual_models": {
+    "deepseek-flash": 189
+  },
+  "source_spans_and_public_scope_verified": true,
+  "reference_scope_locked_before_answers": true,
+  "proxy_input_whitelists_verified": true,
+  "point_quality_and_proxy_scores_recomputed": true,
+  "quote_repairs_change_only_quoted_text": true,
+  "u_cases_retained": true,
+  "external_unseen_test": false
+}

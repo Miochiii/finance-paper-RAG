@@ -1,0 +1,36 @@
+{
+  "n": 12,
+  "metrics": [
+    {
+      "cohort": "development",
+      "n": 12,
+      "determinate": 12,
+      "incomplete": 4,
+      "flagged_incomplete": 4,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "complete": 8,
+      "flagged_complete": 0,
+      "unresolved_complete": 0
+    },
+    {
+      "cohort": "new_source_check",
+      "n": 0,
+      "determinate": 0,
+      "incomplete": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "complete": 0,
+      "flagged_complete": 0,
+      "unresolved_complete": 0
+    }
+  ],
+  "quote_expansions": 2,
+  "new_api_responses": 24,
+  "reused_generated_answers": 12,
+  "total_tokens": 19393,
+  "actual_models": {
+    "deepseek-flash": 24
+  }
+}

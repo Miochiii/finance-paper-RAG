@@ -1,0 +1,13 @@
+﻿aid,qid,condition,cohort,target_index,quality,full_answer_success,rule_refusal,direct_status,direct_score,retrieval_status,retrieval_score,gap512,gap4096,truncated512,truncated4096
+B0001,fin_025,retained_evidence_prefix,development,1,2,1,0,U,,U,,0.8643104540313907,0.0015188508413778435,True,False
+B0002,fin_005,retained_evidence_prefix,development,2,2,1,0,U,,complete,0.0,0.0840406115573681,0.004773722390757114,True,False
+B0003,fin_025,baseline,development,1,2,1,0,U,,U,,0.00043733440351828275,0.00060000717933842,True,False
+B0004,fin_005,semantic_partial,development,2,1,0,0,U,,U,,0.05232762684639322,0.033907958004827626,True,False
+B0005,fin_006,semantic_partial,development,2,1,0,0,complete,0.0,incomplete,0.5,0.0005838324581912443,0.0006615174228741224,True,False
+B0006,fin_005,baseline,development,2,2,1,0,U,,U,,0.0026834398088574603,0.005021149947632315,True,False
+B0007,fin_021,semantic_partial,development,1,1,0,0,U,,incomplete,0.16666666666666666,0.2798284924581987,0.15546273406508337,True,False
+B0008,fin_021,baseline,development,1,2,1,0,complete,0.0,complete,0.0,0.21419788956644056,0.11027937158609122,True,False
+B0009,fin_021,retained_evidence_prefix,development,1,2,1,0,complete,0.0,incomplete,0.5,0.3490888048344678,0.0675466911396291,True,False
+B0010,fin_025,semantic_partial,development,1,1,0,0,U,,U,,0.006097562192575309,0.0014437558971204926,True,False
+B0011,fin_006,retained_evidence_prefix,development,2,2,1,0,complete,0.0,incomplete,0.1,0.06853749303199023,0.0005838324581912443,True,False
+B0012,fin_006,baseline,development,2,2,1,0,complete,0.0,complete,0.0,0.0006487308181403439,0.0009399438806628558,True,False

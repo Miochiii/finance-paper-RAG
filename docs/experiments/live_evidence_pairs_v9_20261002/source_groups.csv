@@ -1,0 +1,17 @@
+﻿source,condition,n,complete,bad,quality_u,proxy_u,bad_flagged,bad_missed,bad_unresolved,complete_false_flags,complete_proxy_u,refusals,bad_without_refusal,bad_without_refusal_flagged
+信息熵在机器学习算法中的运用_张璐瑶.pdf,live_normal,1,1,0,0,0,0,0,0,0,0,0,0,0
+信息熵在机器学习算法中的运用_张璐瑶.pdf,live_corrupted,1,0,1,0,0,1,0,0,0,0,0,1,1
+基于文本挖掘和机器学习算法的股票投资研究_陆航航.pdf,live_normal,1,1,0,0,0,0,0,0,0,0,0,0,0
+基于文本挖掘和机器学习算法的股票投资研究_陆航航.pdf,live_corrupted,1,0,1,0,0,1,0,0,0,0,0,1,1
+基于机器学习和新闻文本的原油期货资产配置研究_钟浩.pdf,live_normal,1,1,0,0,0,0,0,0,0,0,0,0,0
+基于机器学习和新闻文本的原油期货资产配置研究_钟浩.pdf,live_corrupted,1,0,1,0,0,1,0,0,0,0,0,1,1
+基于机器学习的实证资产定价研究_马甜.pdf,live_normal,2,2,0,0,0,0,0,0,0,0,0,0,0
+基于机器学习的实证资产定价研究_马甜.pdf,live_corrupted,2,0,2,0,0,2,0,0,0,0,0,2,2
+基于机器学习算法的P2P网络借贷信用评级产品设计_路杨宁.pdf,live_normal,1,1,0,0,0,0,0,0,0,0,0,0,0
+基于机器学习算法的P2P网络借贷信用评级产品设计_路杨宁.pdf,live_corrupted,1,0,1,0,0,1,0,0,0,0,0,1,1
+基于机器学习算法的黑色系期货价格预测_郭梓晗.pdf,live_normal,1,1,0,0,0,0,0,0,0,0,0,0,0
+基于机器学习算法的黑色系期货价格预测_郭梓晗.pdf,live_corrupted,1,0,1,0,0,1,0,0,0,0,0,1,1
+气候金融背景下的气温衍生品定价研究——基于机器学习算法_杨刚.pdf,live_normal,2,2,0,0,0,0,0,0,0,0,0,0,0
+气候金融背景下的气温衍生品定价研究——基于机器学习算法_杨刚.pdf,live_corrupted,2,0,2,0,0,2,0,0,0,0,0,2,2
+面向不平衡数据集的机器学习算法对信贷风险的研究_游云贝.pdf,live_normal,1,1,0,0,0,0,0,0,0,0,0,0,0
+面向不平衡数据集的机器学习算法对信贷风险的研究_游云贝.pdf,live_corrupted,1,0,1,0,0,1,0,0,0,0,0,1,1

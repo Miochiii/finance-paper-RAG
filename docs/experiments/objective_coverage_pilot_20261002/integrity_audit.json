@@ -1,0 +1,22 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T03:25:32.950341+00:00",
+  "initial_candidates": 12,
+  "admitted_questions": 11,
+  "known_control_answers": 33,
+  "live_answers": 11,
+  "unique_new_api_responses": 243,
+  "source_hashes_checked": 29,
+  "scope_constructed_before_any_test_answer": true,
+  "initial_drafts_and_failed_checks_retained": true,
+  "control_labels_recomputed_from_single_slot_changes": true,
+  "public_only_proxy_payloads_verified": true,
+  "reference_scorer_diagnostic_prespecified_and_recomputed": true,
+  "retrieved_spans_and_answer_anchors_verified": true,
+  "all_scores_recomputed": true,
+  "new_questions_on_seen_sources": true,
+  "live_fault_detection_test": false,
+  "actual_models": {
+    "deepseek-flash": 243
+  }
+}

@@ -1,0 +1,4 @@
+# Additional plotting dependency for rag_fresh_change_experiment.py.
+# The experiment otherwise uses the project's existing NumPy, SciPy, OpenAI,
+# PyTorch and Transformers installations.
+matplotlib==3.11.2

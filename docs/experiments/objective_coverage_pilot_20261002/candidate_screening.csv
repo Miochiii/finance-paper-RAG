@@ -1,0 +1,13 @@
+﻿input_id,status,initial_program_valid,initial_two_checks_pass,revised_valid,experimental_admission,errors
+T0001,pending,1,1,1,1,
+T0002,pending,1,1,1,1,
+T0003,pending,1,1,1,1,
+T0004,pending,1,1,1,1,
+T0005,pending,0,0,1,1,
+T0006,pending,0,0,1,1,
+T0007,pending,0,0,0,0,insufficient_scalar_fields
+T0008,pending,1,1,1,1,
+T0009,pending,1,1,1,1,
+T0010,pending,1,1,1,1,
+T0011,pending,1,1,1,1,
+T0012,pending,1,1,1,1,

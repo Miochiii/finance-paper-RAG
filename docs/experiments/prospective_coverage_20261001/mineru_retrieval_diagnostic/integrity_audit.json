@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-01T15:24:12.586780+00:00",
+  "original_source_hashes_checked": 29,
+  "retrieved_spans_match_original_text": true,
+  "metadata_scope_checked": true,
+  "no_api_calls": true,
+  "normative_quotes_used_only_after_ranking": true
+}

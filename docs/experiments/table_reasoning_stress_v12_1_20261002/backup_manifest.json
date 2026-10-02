@@ -1,0 +1,189 @@
+{
+  "saved_at": "2026-10-02T14:23:19.761227+00:00",
+  "copied_files": 36,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_table_reasoning_stress.py",
+      "sha256": "99ba6a4376efe3fa15d4664003d1973cbb4307eb283d70526834e6a0fac8088e"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_table_reasoning_stress.py",
+      "sha256": "ee5468318ca6f2d556d106d0ffeb66ab3c20988ed3a1eaed9d13a23996090819"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_table_reasoning_stress.py",
+      "sha256": "c245daac5502aa0d8cde4440f5a9897a0462422109c6f614232fa386c06879d1"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_table_reasoning_stress.py",
+      "sha256": "7d58c6207fcbd572fd7d6386c52dd2585cfaf4023eedc3ba38ede1ced2ade504"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_table_reasoning_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_table_reasoning_revision.py",
+      "sha256": "7b9eec3babec9b37eb3d90ecb9d22f0a011ac468e14d06619f7888644fb86d75"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_table_reasoning_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_table_reasoning_revision.py",
+      "sha256": "9b97c6fcb655a364deafa317b28ed9080a84b23e5014e640f8dbc28e8f5efab1"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_reasoning_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_table_reasoning_revision.py",
+      "sha256": "bfa114b8b4ecafde4e4922f2ac5a58c3e5b18e719091a8879b1ae83790eaeb0b"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_table_reasoning_preparation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_table_reasoning_preparation.py",
+      "sha256": "780ee5e1291822dd379a5741da17c831272694a6e4c63e0146a5354f413835ba"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\diagnose_rag_table_calculation_literals.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\diagnose_rag_table_calculation_literals.py",
+      "sha256": "3e63d9fe8bf1d8bfd50072fe70dc6150700b9812f19f84fa367f8d74e398e051"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_calculation_literals.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_table_calculation_literals.py",
+      "sha256": "59663a80f4015929ad518f1ba348029116a4159103ce2e09a7af650d3af7a0d8"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\finalize_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\finalize_rag_table_reasoning_stress.py",
+      "sha256": "a7dd8f29974213c0a74cceb3312b9f8695d534c54368d3969b17e974ab914c8d"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_finalize_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_finalize_rag_table_reasoning_stress.py",
+      "sha256": "2d6a3ce98461e64391849733c4bc41a160ce73d0e797eeaf81bd6309e0bac04f"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_table_reasoning_completion.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_table_reasoning_completion.py",
+      "sha256": "2603fcd26bfef7b7d1d5c6d34c856ac9f21cd6cc945b734dfd89f0774c6b09fc"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\analysis_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\analysis_summary.json",
+      "sha256": "88d0b7f6b92d517a7af2af0eccbb068ddb827d16430e91818efbf06dabda9121"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\integrity_audit.json",
+      "sha256": "8eb210ad762661a7ed7b99c25940f5337a41e0a3002d105045944d6e3c97dbc9"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\completion_integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\completion_integrity_audit.json",
+      "sha256": "9d94e9e9d8ef7b0fd3c4766a860a9f83fc732b27e6917926bf65993b629fc0fb"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\workflow_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\workflow_summary.json",
+      "sha256": "521f96407d7ef9053e7b467e7ae74c971bee5c772054a97d8ab386c7b87e9138"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\signal_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\signal_metrics.csv",
+      "sha256": "53db957957b2355169b3a3b946596248eca7aac12930238debf582e84e8a0911"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\task_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\task_metrics.csv",
+      "sha256": "7bfd50be8deb144fc2ce80683bcb9ae4e54c8065dc71982d46059b699ac474b4"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\paired_quality.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\paired_quality.csv",
+      "sha256": "b11348066048a4f2b564f8398edf3c85e6dff3b4be891c9c236a174e087d245c"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\answer_scores.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\answer_scores.csv",
+      "sha256": "014ec0515d521780371dfea6516125442f4dcce990141b80d05e7e4d19625791"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\candidate_screening.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\candidate_screening.csv",
+      "sha256": "ec07011e3c5797f386f7b8fe7c392ff84533387d24f02509ea1787b9de405e78"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\distractor_strength_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\distractor_strength_summary.json",
+      "sha256": "2d2512b5765576c2619690254e721e32314914b408f322ca6825ed433a059ae8"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\distractor_stratified_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\distractor_stratified_metrics.csv",
+      "sha256": "1534469de6184b6d4e87b6cfd582af5e8d7e64ddca27af2227b4965f35ef062b"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\calculation_literal_diagnostic.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\calculation_literal_diagnostic.json",
+      "sha256": "297b5835a5d77355e09dabe80d48463adf702e455be4eefa868d7dfac1f7c7dc"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\calculation_literal_diagnostic.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\calculation_literal_diagnostic.csv",
+      "sha256": "e76bee3e58979b1a5d8c0f7720482bd8bb04f0492978034fa1c707c79ca6145d"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\filtered_literal_diagnostic.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\filtered_literal_diagnostic.json",
+      "sha256": "9ab79a986ab086af3e0af71b77516019e5642f781c7b8bee3c2f274c173bdb49"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\filtered_literal_diagnostic.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\filtered_literal_diagnostic.csv",
+      "sha256": "32c727321e9ded586ccba4592105017e32e040eee2df854b27f8bf179d3d197d"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\supplementary_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\supplementary_tests.json",
+      "sha256": "2339f974fd8aeaceec0b59ea821740cb39ea6a0ddf65de87ae2845aacf188d36"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\expanded_api_authorization.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\expanded_api_authorization.json",
+      "sha256": "b6f12e54b1a2b4e530fdfb3f6f6702aed93833d5f7ccc623a00182a18713e3d5"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\api_approval_rejection.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\api_approval_rejection.json",
+      "sha256": "07caf303a5813f736434f1b1680d82498f67aa5625866b1e888401e23957f87f"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\calculation_diagnostic_lock.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\calculation_diagnostic_lock.json",
+      "sha256": "57e17395534c63248e61d19df0bee2ab652e758eeb789f9d4f127a2afbdfe951"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\table_reasoning_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_table_v12_1_report_20261002.md",
+      "sha256": "9ad60b3bcd367f32c5d4ce879dfe05c08570138d80dc57c0fc04ce20d678638f"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\table_reasoning_conclusions.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_table_v12_1_conclusions_20261002.md",
+      "sha256": "b6e4554130603bf10d6f0b24b7ef7dd09db987e77637d78a8b7ec30697b721ca"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\table_reasoning_summary.png",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_table_v12_1_20261002.png",
+      "sha256": "1224294601d0225c63d88d7eeaf12b676b1a1917d1862354c4dc60b763cdb029"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\table_reasoning_summary.svg",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_table_v12_1_20261002.svg",
+      "sha256": "ae7f1caec44b269b987198fd4cad0084ef79668fd4778c8070c91facc2efce2a"
+    }
+  ],
+  "raw_questions_source_evidence_references_answers_API_records_not_copied": true,
+  "git_commit": false,
+  "github_push": false
+}

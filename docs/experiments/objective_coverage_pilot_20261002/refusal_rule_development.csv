@@ -1,0 +1,12 @@
+﻿aid,question_key,frozen_old_refusal,development_refusal,reason
+S0002,O0007,1,1,legacy_contextual_rule
+S0003,O0004,0,1,all_requested_fields_explicitly_not_found
+S0005,O0009,0,1,cannot_supply_requested_fields_from_context
+S0007,O0011,0,0,not_all_requested_fields_missing
+S0009,O0002,0,0,not_all_requested_fields_missing
+S0013,O0003,0,0,not_all_requested_fields_missing
+S0017,O0005,0,0,not_all_requested_fields_missing
+S0018,O0010,0,1,all_requested_fields_explicitly_not_found
+S0020,O0001,0,0,not_all_requested_fields_missing
+S0037,O0008,0,0,not_all_requested_fields_missing
+S0041,O0006,0,0,not_all_requested_fields_missing

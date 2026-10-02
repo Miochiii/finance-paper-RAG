@@ -1,0 +1,16 @@
+{
+  "recorded_at": "2026-10-02T10:53:26.002687+00:00",
+  "user_reply": "授权，继续",
+  "authorization_source": "direct_user_reply_to_V11_specific_scope_request",
+  "endpoint": "https://api.deepseek.com",
+  "questions": 17,
+  "papers": 11,
+  "transformed_context_groups": 51,
+  "maximum_evidence_check_requests": 153,
+  "maximum_fresh_answers": 68,
+  "usual_logical_requests": 493,
+  "maximum_logical_requests_including_schema_and_quote_repairs": 1037,
+  "network_retry_limit": 1,
+  "scope": "send_questions_MinerU_evidence_standard_facts_generated_answers_for_V11_admission_generation_and_two_round_scoring",
+  "prior_V10_2400_generation_cap_not_reused": true
+}

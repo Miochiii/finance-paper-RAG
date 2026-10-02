@@ -1,0 +1,16 @@
+{
+  "recorded_at": "2026-10-02T14:02:24.977275+00:00",
+  "user_reply": "授权，继续",
+  "source": "direct_user_reply_to_specific_V12_1_authorization_request",
+  "endpoint": "https://api.deepseek.com",
+  "new_questions": 27,
+  "target_papers": 9,
+  "evidence_papers": 11,
+  "maximum_admission_requests": 108,
+  "maximum_fresh_answers": 54,
+  "usual_maximum_logical_requests": 378,
+  "maximum_logical_requests_including_repairs": 810,
+  "network_retry_limit": 1,
+  "scope": "selected_source_tables_questions_standard_facts_and_generated_answers_for_V12_1_admission_generation_two_round_scoring",
+  "prior_V11_authorization_not_reused": true
+}

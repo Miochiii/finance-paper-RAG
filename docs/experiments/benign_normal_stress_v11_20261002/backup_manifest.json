@@ -1,0 +1,115 @@
+{
+  "saved_at": "2026-10-02T11:03:42.516143+00:00",
+  "phase": "complete",
+  "copied_files": 21,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_benign_normal_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_benign_normal_stress.py",
+      "sha256": "40eff84c6a7d8ece849adeca8edb8dc65d9d8aa21291a4bf91b93d513f0e3d72"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_benign_normal_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_benign_normal_stress.py",
+      "sha256": "b2fee3cb59f2b03a5a9d003f3c23cedf5c2eb6bac234f734fe51afdac48bd857"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_benign_normal_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_benign_normal_stress.py",
+      "sha256": "7092159e17766997810ee2314cfcedb6390bb005e4801c05593d6d222e218641"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_benign_normal_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_benign_normal_stress.py",
+      "sha256": "a7b6263821a6da23ebd4a48856f235eff6b1d92ca5a99d9447711f806a5025c3"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_benign_preparation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_benign_preparation.py",
+      "sha256": "468a337332b252dae211be41d6f8f08e17108f62a81bbae2009a8c8d4c48f57b"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_benign_normal_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_benign_normal_stress.py",
+      "sha256": "ee4eb97e16ca02eccfc75a5ece055dd4e76ef691864e6508040c7fc4d3b2be4a"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\targeted_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\targeted_tests.json",
+      "sha256": "ae01f9c75aef5d4aa0f45c0e97d880ffcc859a62bff052740e5ed3806a181cde"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\preparation_integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\preparation_integrity_audit.json",
+      "sha256": "70c2780ef90a8eebb19d3a945f9dfefb57d4c3910da3752f2f892366dfff24fd"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\preparation_disposition.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\preparation_disposition.json",
+      "sha256": "7bb787e7201def2a9df52e2cb157085a845de2a77f4bdbc27d0ebbe5d9b34954"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\workflow_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\workflow_summary.json",
+      "sha256": "6aed79302b1fb717e3f1d25c28c0c9384452752378000a53d88c6a1070a1624d"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\analysis_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\analysis_summary.json",
+      "sha256": "918edaa054200569213700ea164e59ab766558870200da028c1300ef093c1d97"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\integrity_audit.json",
+      "sha256": "88fd1e1d12b14c29e43ed85cc1b7894c4d72a21595dbf4e750e89178c2d83480"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\signal_metrics.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\signal_metrics.csv",
+      "sha256": "166b031d81ffe529b0113619bceae132afed955c63761fcaccb882b3caea960e"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\paired_quality.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\paired_quality.csv",
+      "sha256": "4ea0ee7c7c970e76d629fc7b95565a9f16cedf30b88ec5b9efb279d6161bd349"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\source_groups.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\source_groups.csv",
+      "sha256": "6f8de57f75a9f2c654cb305b9c42619263e828a334b0a138398d834865cc4bdb"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\answer_scores.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\answer_scores.csv",
+      "sha256": "70c99959ff5f65cef8424acf2053dc63a27800132d6c0a516859aab74813c93e"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\context_screening.csv",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\benign_normal_stress_v11_20261002\\context_screening.csv",
+      "sha256": "74cbd0625e35002f3e97238a03f45996f092bc7da1c72940d0fca6fc74a26ab9"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\log\\正常证据压力V11协议_20261002.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_benign_v11_protocol_20261002.md",
+      "sha256": "2aad6919714bb93ebe66afb279b4a8033380c1cf25e75a1076749113379fadbb"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\normal_stress_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_benign_v11_report_20261002.md",
+      "sha256": "7d1b7973567e2b9bfaf7f52df5ee52224c262d97197e2c3dbb90731ed05a3f92"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\normal_stress_quality.png",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_benign_v11_20261002.png",
+      "sha256": "b8a7d7c8d6924a37e5429431bdafbf04447e80bc759817c94fdede288664fbd3"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\benign_normal_stress_v11_20261002\\normal_stress_quality.svg",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\assets\\rag_benign_v11_20261002.svg",
+      "sha256": "2cac20dae7b977cfdd425c8097835783f85b120a247982e3d7840abf432495be"
+    }
+  ],
+  "raw_questions_evidence_answers_references_and_API_records_not_copied": true,
+  "git_commit": false,
+  "github_push": false
+}

@@ -1,0 +1,92 @@
+{
+  "version": "benign_normal_stress_v11",
+  "interpretation": "seen_17_question_11_paper_context_stress_pilot_same_vendor_automatic_truth_not_natural_traffic",
+  "input_questions": 17,
+  "input_sources": 11,
+  "fresh_generations": 68,
+  "qualified_cases": 68,
+  "excluded_before_answers": 0,
+  "metrics": [
+    {
+      "condition": "live_normal",
+      "n": 17,
+      "complete": 17,
+      "bad": 0,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "bad_flagged": 0,
+      "bad_missed": 0,
+      "bad_unresolved": 0,
+      "complete_false_flags": 0,
+      "complete_proxy_u": 0,
+      "refusals": 0,
+      "bad_without_refusal": 0,
+      "bad_without_refusal_flagged": 0
+    },
+    {
+      "condition": "live_reverse",
+      "n": 17,
+      "complete": 17,
+      "bad": 0,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "bad_flagged": 0,
+      "bad_missed": 0,
+      "bad_unresolved": 0,
+      "complete_false_flags": 0,
+      "complete_proxy_u": 0,
+      "refusals": 0,
+      "bad_without_refusal": 0,
+      "bad_without_refusal_flagged": 0
+    },
+    {
+      "condition": "live_dedup",
+      "n": 17,
+      "complete": 17,
+      "bad": 0,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "bad_flagged": 0,
+      "bad_missed": 0,
+      "bad_unresolved": 0,
+      "complete_false_flags": 0,
+      "complete_proxy_u": 0,
+      "refusals": 0,
+      "bad_without_refusal": 0,
+      "bad_without_refusal_flagged": 0
+    },
+    {
+      "condition": "live_distractor",
+      "n": 17,
+      "complete": 17,
+      "bad": 0,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "bad_flagged": 0,
+      "bad_missed": 0,
+      "bad_unresolved": 0,
+      "complete_false_flags": 0,
+      "complete_proxy_u": 0,
+      "refusals": 0,
+      "bad_without_refusal": 0,
+      "bad_without_refusal_flagged": 0
+    }
+  ],
+  "paired_worsened": 0,
+  "paired_improved": 0,
+  "paired_quality_u": 0,
+  "api_responses": 493,
+  "failed_api_records": 0,
+  "total_tokens": 816827,
+  "actual_models": {
+    "deepseek-flash": 493
+  },
+  "generation_finishes": {
+    "stop": 68
+  },
+  "completed_at": "2026-10-02T11:01:05.137513+00:00",
+  "assumptions": "automatic_reference_quality; paired_questions_and_repeated_sources_not_independent_samples",
+  "detector_training_or_threshold_change": false,
+  "monitor_stress_plans_used": false,
+  "normal_scene_bad_answers_are_quality_errors_not_proxy_false_flags": true
+}

@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T14:21:13.275093+00:00",
+  "admission_requests": 108,
+  "fresh_answers": 42,
+  "scoring_requests": 168,
+  "logical_request_records": 318,
+  "candidate_screening_and_randomization_replayed": true,
+  "source_ranking_corpus_hashes_checked": 38,
+  "all_generation_metadata_equal_raw_responses": true,
+  "all_scoring_after_matching_answer": true,
+  "numeric_diagnostic_frozen_before_answers": true,
+  "earlier_frozen_checkpoints_unchanged": true,
+  "qualified_questions": 21,
+  "qualified_target_sources": 7,
+  "excluded_before_answers": 6,
+  "authorized_logical_limit": 810,
+  "actual_network_attempts_not_inferred_from_logical_records": true,
+  "scope": "protocol_integrity_and_authorization_not_independent_semantic_truth"
+}

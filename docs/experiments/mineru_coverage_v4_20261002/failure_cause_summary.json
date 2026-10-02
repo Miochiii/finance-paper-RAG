@@ -1,0 +1,14 @@
+{
+  "quality_u_causes": {
+    "point_schema_mismatch": 1,
+    "two_round_disagreement": 2,
+    "basis_scope_unresolved": 10
+  },
+  "proxy_u_causes": {
+    "basis_scope_unresolved": 10,
+    "point_schema_mismatch": 1
+  },
+  "good_proxy_u": 3,
+  "good": 6,
+  "apparent_misses": 1
+}

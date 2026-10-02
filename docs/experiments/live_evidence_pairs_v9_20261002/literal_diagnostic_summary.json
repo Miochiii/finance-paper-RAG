@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-10-02T09:28:42.905661+00:00",
+  "answers": 20,
+  "all_magnitudes_match": 20,
+  "normal_target_matches": 10,
+  "fault_target_matches": 10,
+  "other_numeric_fields_unchanged": 20,
+  "no_additional_api": true,
+  "whitespace_and_line_boundaries_preserved": true,
+  "scope": "posthoc_deterministic_labeled_displayed_magnitude_check_not_unit_semantics_or_independent_source_truth",
+  "primary_scores_unchanged": true,
+  "first_attempt_parser_error_retained": true
+}

@@ -1,0 +1,18 @@
+{
+  "recorded_at": "2026-10-02T07:59:56.130068+00:00",
+  "preflight_status": "failed",
+  "issues": [
+    {
+      "question_key": "P0001",
+      "index": 1,
+      "reason": "duplicated_percent_marker_in_proxy_fact"
+    }
+  ],
+  "subsequent_generation_was_not_blocked": true,
+  "workflow_defect": "tool_orchestration_proceeded_after_failed_preflight_command",
+  "generated_answers": 17,
+  "all_original_records_retained": true,
+  "confirmatory_use_blocked": true,
+  "required_next_version": "strict_percent_fact_normalization_and_mandatory_preflight_before_generate",
+  "no_test_result_tuning": true
+}

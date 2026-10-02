@@ -1,0 +1,85 @@
+{
+  "screened_questions": 12,
+  "paired_questions": 3,
+  "generated_answers": 9,
+  "metrics": [
+    {
+      "condition": "all",
+      "n": 9,
+      "quality_u": 3,
+      "signal_u": 6,
+      "complete": 4,
+      "incomplete": 2,
+      "flagged_complete": 0,
+      "flagged_incomplete": 1,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    },
+    {
+      "condition": "baseline",
+      "n": 3,
+      "quality_u": 1,
+      "signal_u": 2,
+      "complete": 2,
+      "incomplete": 0,
+      "flagged_complete": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "semantic_partial",
+      "n": 3,
+      "quality_u": 1,
+      "signal_u": 1,
+      "complete": 0,
+      "incomplete": 2,
+      "flagged_complete": 0,
+      "flagged_incomplete": 1,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    },
+    {
+      "condition": "retained_evidence_prefix",
+      "n": 3,
+      "quality_u": 1,
+      "signal_u": 3,
+      "complete": 2,
+      "incomplete": 0,
+      "flagged_complete": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    }
+  ],
+  "gate": {
+    "status": "not_passed",
+    "checks": {
+      "enough_paired_questions": false,
+      "enough_complete_answers": false,
+      "enough_degraded_pairs": false,
+      "enough_non_refusal_degraded_pairs": false,
+      "complete_flags": true,
+      "signal_availability": false,
+      "incomplete_flag_fraction": false,
+      "all_quiet_degradations_flagged": true
+    },
+    "degraded_pairs": 1,
+    "quiet_degraded_pairs": 1,
+    "complete_answers": 4,
+    "incomplete_answers": 2,
+    "interpretation": "prespecified_mechanism_gate_not_population_performance_or_long_stream_error_control"
+  },
+  "models": {
+    "deepseek-flash": 137
+  },
+  "api_responses": 137,
+  "total_tokens": 271266,
+  "failed_api_records": 0,
+  "feature_truncated512": 9,
+  "feature_truncated4096": 0
+}

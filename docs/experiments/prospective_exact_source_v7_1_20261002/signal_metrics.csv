@@ -1,0 +1,6 @@
+﻿condition,n,complete,incomplete,quality_u,proxy_u,false_flags,flagged_incomplete,missed_incomplete,unresolved_incomplete,refusals
+controls,48,16,32,0,6,0,28,0,4,0
+control_complete,16,16,0,0,2,0,0,0,0,0
+control_omitted,16,0,16,0,2,0,14,0,2,0
+control_corrupted,16,0,16,0,2,0,14,0,2,0
+live_normal,16,16,0,0,2,0,0,0,0,0

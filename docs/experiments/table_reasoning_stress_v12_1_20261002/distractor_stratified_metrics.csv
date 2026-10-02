@@ -1,0 +1,5 @@
+﻿distractor_match,condition,n,complete,bad,quality_u,proxy_u,bad_flagged,bad_missed,bad_unresolved,complete_false_flags,complete_proxy_u,refusals,bad_without_refusal,bad_without_refusal_flagged
+direct_field,live_normal,12,10,2,0,1,2,0,0,0,1,0,2,2
+direct_field,live_table_distractor,12,10,2,0,0,2,0,0,0,0,0,2,2
+alias_only,live_normal,9,7,2,0,0,2,0,0,0,0,0,2,2
+alias_only,live_table_distractor,9,8,1,0,0,1,0,0,0,0,0,1,1

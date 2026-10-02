@@ -1,0 +1,94 @@
+{
+  "saved_at": "2026-10-02T12:33:06.036996+00:00",
+  "copied_files": 17,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_table_reasoning_stress.py",
+      "sha256": "99ba6a4376efe3fa15d4664003d1973cbb4307eb283d70526834e6a0fac8088e"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_table_reasoning_stress.py",
+      "sha256": "ee5468318ca6f2d556d106d0ffeb66ab3c20988ed3a1eaed9d13a23996090819"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_table_reasoning_stress.py",
+      "sha256": "c245daac5502aa0d8cde4440f5a9897a0462422109c6f614232fa386c06879d1"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_reasoning_stress.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_table_reasoning_stress.py",
+      "sha256": "7d58c6207fcbd572fd7d6386c52dd2585cfaf4023eedc3ba38ede1ced2ade504"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_table_reasoning_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_table_reasoning_revision.py",
+      "sha256": "7b9eec3babec9b37eb3d90ecb9d22f0a011ac468e14d06619f7888644fb86d75"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_table_reasoning_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_table_reasoning_revision.py",
+      "sha256": "9b97c6fcb655a364deafa317b28ed9080a84b23e5014e640f8dbc28e8f5efab1"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_reasoning_revision.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_table_reasoning_revision.py",
+      "sha256": "bfa114b8b4ecafde4e4922f2ac5a58c3e5b18e719091a8879b1ae83790eaeb0b"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_table_reasoning_preparation.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_table_reasoning_preparation.py",
+      "sha256": "780ee5e1291822dd379a5741da17c831272694a6e4c63e0146a5354f413835ba"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\targeted_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\targeted_tests.json",
+      "sha256": "4fb259a22151601243d3171d62a8ca12ca0dd62623e10ecaee9b1fd8ca55fe87"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\preparation_integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\preparation_integrity_audit.json",
+      "sha256": "ec76a7a748ccf75dd15c06f906d9f401925cc226a20df22e928651441019413c"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\preparation_disposition.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\preparation_disposition.json",
+      "sha256": "c0569766a6cd5d6f8ea19966c72e29d0362da9d071eb3b98325beb37015bd34a"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\distractor_strength_summary.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_1_20261002\\distractor_strength_summary.json",
+      "sha256": "2d2512b5765576c2619690254e721e32314914b408f322ca6825ed433a059ae8"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_20261002\\preparation_integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_20261002\\preparation_integrity_audit.json",
+      "sha256": "8a5a51763173d2b945be5dddb9d27c4e509e00bcc588184ed258d39d60777ab2"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_20261002\\offline_preflight_failure.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_20261002\\offline_preflight_failure.json",
+      "sha256": "c1493c9eed869432ff10d4e6932b1237515ce9773b0cf7e4f01b653633832c7f"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_20261002\\preparation_disposition.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\table_reasoning_stress_v12_20261002\\preparation_disposition.json",
+      "sha256": "bea3e8f53319cdfbdc5aaf0db5318838f4a66d5a710ae2bb81f42414a7b92662"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\log\\表格计算新题V12_1协议_20261002.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_table_v12_1_protocol_20261002.md",
+      "sha256": "69ff0d06c948d7abc357dc033759927167654eabe98bd3f404c84cdc1823bdaa"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\table_reasoning_stress_v12_1_20261002\\preparation_report.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_table_v12_1_preparation_20261002.md",
+      "sha256": "ea98b8cca122c06490480d661674b99a25be83f27137e08c6b717d724553e8c1"
+    }
+  ],
+  "raw_questions_references_evidence_not_copied": true,
+  "git_commit": false,
+  "github_push": false
+}

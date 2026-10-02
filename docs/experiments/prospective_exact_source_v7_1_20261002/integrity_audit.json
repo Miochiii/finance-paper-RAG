@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T06:50:56.799169+00:00",
+  "questions": 16,
+  "sources": 8,
+  "development_source_overlap": 0,
+  "previously_in_corpus_and_old_annotation_banks": true,
+  "cases": 64,
+  "fresh_answers": 16,
+  "source_block_types_and_approximation_filter_verified": true,
+  "all_candidate_qualification_replayed": true,
+  "all_raw_requests_scores_and_controls_replayed": true,
+  "raw_retrieval_budget_and_boundary_replay_verified": true,
+  "frozen_method_unchanged": true,
+  "pre_answer_locks_checked": true,
+  "unresolved_cases_retained": true,
+  "api_records": 256,
+  "legacy_preparation_had_no_test_answers": true
+}

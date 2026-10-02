@@ -1,0 +1,5 @@
+﻿condition,n,complete,bad,quality_u,proxy_u,bad_flagged,bad_missed,bad_unresolved,complete_false_flags,complete_proxy_u,refusals,bad_without_refusal,bad_without_refusal_flagged
+live_normal,17,17,0,0,0,0,0,0,0,0,0,0,0
+live_reverse,17,17,0,0,0,0,0,0,0,0,0,0,0
+live_dedup,17,17,0,0,0,0,0,0,0,0,0,0,0
+live_distractor,17,17,0,0,0,0,0,0,0,0,0,0,0

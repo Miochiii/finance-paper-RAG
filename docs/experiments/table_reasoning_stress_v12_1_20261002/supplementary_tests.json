@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "passed": 27,
+  "recorded_at": "2026-10-02T14:22:57.568501+00:00",
+  "base_and_revision_tests": 16,
+  "pre_generation_numeric_literal_tests": 6,
+  "completion_tests": 5,
+  "command": "python -m pytest -q -p no:cacheprovider tests/test_rag_table_reasoning_stress.py tests/test_rag_table_reasoning_revision.py tests/test_rag_table_calculation_literals.py tests/test_finalize_rag_table_reasoning_stress.py",
+  "exit_code": 0,
+  "frozen_preparation_test_record_unchanged": true
+}

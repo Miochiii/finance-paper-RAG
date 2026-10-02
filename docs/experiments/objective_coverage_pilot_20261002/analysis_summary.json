@@ -1,0 +1,95 @@
+{
+  "candidates": 12,
+  "qualified_questions": 11,
+  "controlled_answers": 33,
+  "fresh_normal_answers": 11,
+  "metrics": [
+    {
+      "condition": "controls",
+      "n": 33,
+      "complete": 11,
+      "incomplete": 22,
+      "quality_u": 0,
+      "proxy_u": 15,
+      "false_flags": 0,
+      "flagged_incomplete": 12,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 10,
+      "refusals": 0
+    },
+    {
+      "condition": "control_complete",
+      "n": 11,
+      "complete": 11,
+      "incomplete": 0,
+      "quality_u": 0,
+      "proxy_u": 5,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "control_omitted",
+      "n": 11,
+      "complete": 0,
+      "incomplete": 11,
+      "quality_u": 0,
+      "proxy_u": 5,
+      "false_flags": 0,
+      "flagged_incomplete": 6,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 5,
+      "refusals": 0
+    },
+    {
+      "condition": "control_corrupted",
+      "n": 11,
+      "complete": 0,
+      "incomplete": 11,
+      "quality_u": 0,
+      "proxy_u": 5,
+      "false_flags": 0,
+      "flagged_incomplete": 6,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 5,
+      "refusals": 0
+    },
+    {
+      "condition": "live_normal",
+      "n": 11,
+      "complete": 7,
+      "incomplete": 4,
+      "quality_u": 0,
+      "proxy_u": 5,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 4,
+      "refusals": 1
+    }
+  ],
+  "proxy_bases_valid": 6,
+  "gate": {
+    "status": "not_passed",
+    "checks": {
+      "enough_questions": true,
+      "control_proxy_available": false,
+      "complete_false_flags": true,
+      "omitted_detection": false,
+      "corrupted_detection": false,
+      "candidate_scope_acceptance": true
+    },
+    "scope": "scoring_controls_only_not_live_fault_detection"
+  },
+  "api_responses": 243,
+  "failed_api_records": 0,
+  "total_tokens": 492896,
+  "actual_models": {
+    "deepseek-flash": 243
+  },
+  "schema_retry_responses": 0,
+  "quote_retry_responses": 0,
+  "interpretation": "new_questions_on_seen_papers_scoring_controls_and_live_normal_answers_not_live_fault_benchmark"
+}

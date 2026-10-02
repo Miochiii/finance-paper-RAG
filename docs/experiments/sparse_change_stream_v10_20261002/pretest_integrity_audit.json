@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T09:54:35.059069+00:00",
+  "scope": "completed_mean_phase_only_not_full_stream_experiment",
+  "fresh_generations": 80,
+  "unique_generation_ids": 80,
+  "distinct_score_inputs": 5,
+  "scoring_api_responses": 20,
+  "quality_metrics": {
+    "n": 80,
+    "complete": 80,
+    "bad": 0,
+    "quality_u": 0,
+    "proxy_u": 0,
+    "positives": 0,
+    "bad_flagged": 0,
+    "bad_refusals": 0,
+    "complete_false_flags": 0,
+    "complete_u": 0
+  },
+  "future_phases_not_evaluated": true,
+  "source_split_schedule_payload_cache_and_chronology_replayed": true
+}

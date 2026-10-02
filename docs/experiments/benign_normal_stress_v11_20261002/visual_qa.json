@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T11:03:40.356919+00:00",
+  "figure": "normal_stress_quality.png",
+  "legend_outside_annotation_area": true,
+  "all_four_condition_labels_readable": true,
+  "zero_false_flag_labels_readable": true,
+  "aggregate_counts_match_analysis": true,
+  "rendering_helper": "layout_rag_benign_stress_figure.py"
+}

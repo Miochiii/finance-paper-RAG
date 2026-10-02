@@ -961,10 +961,11 @@ def ingest_kb(mineru_out: str = None, docs_dir: str = None,
 
 def ask_kb(question: str, top_k: int = 5, filters: dict = None,
            use_hyde: bool = False, mmr: bool = True,
-           mmr_lambda: float = 0.6) -> dict:
+           mmr_lambda: float = 0.6, origin: str = "internal") -> dict:
     """检索 + 生成（DeepSeek），返回 {answer, citations}。
     filters 为元数据过滤；use_hyde 开启假设文档检索；mmr 默认开启多样性选取。"""
     from rag_core.observability import Timer
+    from rag_quality_log import quality_log_fields
     from rag_core.retriever import normalize_filters
     t_all = Timer()
     filters = normalize_filters(filters)
@@ -973,13 +974,15 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
         hyde_text, hyde_ms = _prepare_hyde(question)
     if not os.getenv("deepseek_api"):
         _log_search_event("ask", ok=False, total_ms=round(t_all.ms(), 1),
-                          error="未配置 deepseek_api")
+                          error="未配置 deepseek_api",
+                          **quality_log_fields(question, None, origin=origin))
         return {"ok": False, "error": "未配置环境变量 deepseek_api"}
     try:
         retriever = get_retriever()
     except RuntimeError as e:
         _log_search_event("ask", ok=False, total_ms=round(t_all.ms(), 1),
-                          error=str(e)[:120])
+                          error=str(e)[:120],
+                          **quality_log_fields(question, None, origin=origin))
         return {"ok": False, "error": str(e)}
 
     from openai import OpenAI
@@ -1005,7 +1008,9 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
                           mmr_ms=rt.get("mmr_ms"), generate_ms=0,
                           hyde_ms=hyde_ms, tokens_in=0, tokens_out=0, hits=0,
                           filters=bool(filters), hyde=use_hyde, mmr=mmr, top_k=top_k,
-                          filter_engine=rt.get("filter_engine"), corpus=_active_corpus_name())
+                          filter_engine=rt.get("filter_engine"), corpus=_active_corpus_name(),
+                          **quality_log_fields(question, "未检索到相关内容。",
+                                               origin=origin, no_evidence=True))
         return {"ok": True, "answer": "未检索到相关内容。", "citations": []}
 
     context, citations, used = _build_context(results)
@@ -1019,6 +1024,7 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
     user_prompt = f"### 参考上下文\n{context}\n\n### 用户问题\n{question}\n"
     tokens_in = tokens_out = 0
     t_gen = Timer()
+    generation_error = None
     try:
         resp = client.chat.completions.create(
             model="deepseek-chat",
@@ -1036,9 +1042,10 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
             tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
     except Exception as e:
         answer = f"调用 DeepSeek API 出错: {e}"
+        generation_error = f"{type(e).__name__}: {str(e)[:120]}"
     generate_ms = t_gen.ms()
     _log_search_event(
-        "ask", ok=True, total_ms=round(t_all.ms(), 1),
+        "ask", ok=generation_error is None, total_ms=round(t_all.ms(), 1),
         qp_ms=round(qp_ms, 1), retrieve_ms=round(retrieve_ms, 1),
         bm25_ms=rt.get("bm25_ms"), vector_ms=rt.get("vector_ms"),
         rerank_ms=rt.get("rerank_ms"), mmr_ms=rt.get("mmr_ms"),
@@ -1046,8 +1053,12 @@ def ask_kb(question: str, top_k: int = 5, filters: dict = None,
         tokens_in=tokens_in, tokens_out=tokens_out, hits=len(results),
         hyde=use_hyde, mmr=mmr, top_k=top_k, filters=bool(filters),
         filter_engine=rt.get("filter_engine"), corpus=_active_corpus_name(),
+        generation_error=bool(generation_error),
+        **quality_log_fields(question, answer if generation_error is None else None,
+                             origin=origin),
     )
-    return {"ok": True, "answer": _linkify_answer(answer or "", used), "citations": citations}
+    return {"ok": generation_error is None,
+            "answer": _linkify_answer(answer or "", used), "citations": citations}
 
 
 def open_doc_kb(doc: str, page: int = 1) -> dict:
@@ -1120,7 +1131,8 @@ def search(req: SearchReq):
 @app.post("/ask")
 def ask(req: AskReq):
     return ask_kb(req.question, req.top_k, req.filters,
-                  use_hyde=req.use_hyde, mmr=req.mmr, mmr_lambda=req.mmr_lambda)
+                  use_hyde=req.use_hyde, mmr=req.mmr, mmr_lambda=req.mmr_lambda,
+                  origin="http")
 
 
 @app.post("/open")
@@ -1441,7 +1453,8 @@ def mcp_ask(question: str, top_k: int = 5, year_min: int = None, year_max: int =
     use_hyde：问题表述绕时开启假设文档检索（多一次 LLM 调用）；mmr 默认开启多样性选取。"""
     filters = {"year_min": year_min, "year_max": year_max,
                "authors": authors, "methods": methods, "tasks": tasks}
-    return ask_kb(question, top_k, filters, use_hyde=use_hyde, mmr=mmr)
+    return ask_kb(question, top_k, filters, use_hyde=use_hyde, mmr=mmr,
+                  origin="mcp")
 
 
 @mcp.tool(name="open_doc")

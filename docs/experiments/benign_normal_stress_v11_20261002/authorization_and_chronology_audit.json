@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T11:01:26.823842+00:00",
+  "qualification_requests": 153,
+  "fresh_generation_responses": 68,
+  "scoring_requests": 272,
+  "logical_request_records": 493,
+  "authorized_logical_limit": 1037,
+  "all_scoring_after_matching_answer": true,
+  "previous_offline_checkpoint_unchanged": true,
+  "failures_preserved": 0,
+  "raw_questions_evidence_answers_and_references_stay_in_working_project": true
+}

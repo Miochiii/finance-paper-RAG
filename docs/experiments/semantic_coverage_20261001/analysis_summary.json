@@ -1,0 +1,344 @@
+{
+  "groups": [
+    {
+      "cohort": "development",
+      "condition": "baseline",
+      "n": 4,
+      "qualities": {
+        "2": 4
+      },
+      "refusals": 0,
+      "direct": {
+        "U": 2,
+        "complete": 2
+      },
+      "retrieved": {
+        "U": 2,
+        "complete": 2
+      }
+    },
+    {
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "n": 4,
+      "qualities": {
+        "1": 4
+      },
+      "refusals": 0,
+      "direct": {
+        "U": 3,
+        "complete": 1
+      },
+      "retrieved": {
+        "U": 2,
+        "incomplete": 2
+      }
+    },
+    {
+      "cohort": "development",
+      "condition": "retained_evidence_prefix",
+      "n": 4,
+      "qualities": {
+        "2": 4
+      },
+      "refusals": 0,
+      "direct": {
+        "U": 2,
+        "complete": 2
+      },
+      "retrieved": {
+        "U": 1,
+        "complete": 1,
+        "incomplete": 2
+      }
+    },
+    {
+      "cohort": "new_source_check",
+      "condition": "baseline",
+      "n": 0,
+      "qualities": {},
+      "refusals": 0,
+      "direct": {},
+      "retrieved": {}
+    },
+    {
+      "cohort": "new_source_check",
+      "condition": "semantic_partial",
+      "n": 0,
+      "qualities": {},
+      "refusals": 0,
+      "direct": {},
+      "retrieved": {}
+    },
+    {
+      "cohort": "new_source_check",
+      "condition": "retained_evidence_prefix",
+      "n": 0,
+      "qualities": {},
+      "refusals": 0,
+      "direct": {},
+      "retrieved": {}
+    }
+  ],
+  "method_metrics": [
+    {
+      "cohort": "development",
+      "method": "question_answer",
+      "n": 12,
+      "determinate": 5,
+      "incomplete": 4,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 1,
+      "unresolved_incomplete": 3,
+      "complete": 8,
+      "flagged_complete": 0,
+      "unresolved_complete": 4
+    },
+    {
+      "cohort": "development",
+      "method": "supplementary_retrieval",
+      "n": 12,
+      "determinate": 7,
+      "incomplete": 4,
+      "flagged_incomplete": 2,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 2,
+      "complete": 8,
+      "flagged_complete": 2,
+      "unresolved_complete": 3
+    },
+    {
+      "cohort": "new_source_check",
+      "method": "question_answer",
+      "n": 0,
+      "determinate": 0,
+      "incomplete": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "complete": 0,
+      "flagged_complete": 0,
+      "unresolved_complete": 0
+    },
+    {
+      "cohort": "new_source_check",
+      "method": "supplementary_retrieval",
+      "n": 0,
+      "determinate": 0,
+      "incomplete": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "complete": 0,
+      "flagged_complete": 0,
+      "unresolved_complete": 0
+    }
+  ],
+  "pairs": [
+    {
+      "qid": "fin_005",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "U",
+      "variant_direct": "U",
+      "baseline_retrieval": "U",
+      "variant_retrieval": "U",
+      "delta_gap512": 0.04964418703753576,
+      "delta_gap4096": 0.02888680805719531,
+      "delta_retrieval_score": null
+    },
+    {
+      "qid": "fin_005",
+      "cohort": "development",
+      "condition": "retained_evidence_prefix",
+      "baseline_quality": "2",
+      "variant_quality": "2",
+      "quality_declined": false,
+      "variant_refusal": 0,
+      "baseline_direct": "U",
+      "variant_direct": "U",
+      "baseline_retrieval": "U",
+      "variant_retrieval": "complete",
+      "delta_gap512": 0.08135717174851063,
+      "delta_gap4096": -0.00024742755687520105,
+      "delta_retrieval_score": null
+    },
+    {
+      "qid": "fin_006",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "complete",
+      "variant_direct": "complete",
+      "baseline_retrieval": "complete",
+      "variant_retrieval": "incomplete",
+      "delta_gap512": -6.489835994909958e-05,
+      "delta_gap4096": -0.0002784264577887335,
+      "delta_retrieval_score": 0.5
+    },
+    {
+      "qid": "fin_006",
+      "cohort": "development",
+      "condition": "retained_evidence_prefix",
+      "baseline_quality": "2",
+      "variant_quality": "2",
+      "quality_declined": false,
+      "variant_refusal": 0,
+      "baseline_direct": "complete",
+      "variant_direct": "complete",
+      "baseline_retrieval": "complete",
+      "variant_retrieval": "incomplete",
+      "delta_gap512": 0.06788876221384989,
+      "delta_gap4096": -0.0003561114224716115,
+      "delta_retrieval_score": 0.1
+    },
+    {
+      "qid": "fin_021",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "complete",
+      "variant_direct": "U",
+      "baseline_retrieval": "complete",
+      "variant_retrieval": "incomplete",
+      "delta_gap512": 0.06563060289175812,
+      "delta_gap4096": 0.045183362478992156,
+      "delta_retrieval_score": 0.16666666666666666
+    },
+    {
+      "qid": "fin_021",
+      "cohort": "development",
+      "condition": "retained_evidence_prefix",
+      "baseline_quality": "2",
+      "variant_quality": "2",
+      "quality_declined": false,
+      "variant_refusal": 0,
+      "baseline_direct": "complete",
+      "variant_direct": "complete",
+      "baseline_retrieval": "complete",
+      "variant_retrieval": "incomplete",
+      "delta_gap512": 0.13489091526802724,
+      "delta_gap4096": -0.04273268044646211,
+      "delta_retrieval_score": 0.5
+    },
+    {
+      "qid": "fin_025",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "U",
+      "variant_direct": "U",
+      "baseline_retrieval": "U",
+      "variant_retrieval": "U",
+      "delta_gap512": 0.005660227789057027,
+      "delta_gap4096": 0.0008437487177820726,
+      "delta_retrieval_score": null
+    },
+    {
+      "qid": "fin_025",
+      "cohort": "development",
+      "condition": "retained_evidence_prefix",
+      "baseline_quality": "2",
+      "variant_quality": "2",
+      "quality_declined": false,
+      "variant_refusal": 0,
+      "baseline_direct": "U",
+      "variant_direct": "U",
+      "baseline_retrieval": "U",
+      "variant_retrieval": "U",
+      "delta_gap512": 0.8638731196278725,
+      "delta_gap4096": 0.0009188436620394234,
+      "delta_retrieval_score": null
+    }
+  ],
+  "screened_questions": 9,
+  "qualified_questions": 4,
+  "case_count": 12,
+  "api_requests": 134,
+  "failed_api_records": 0,
+  "models": {
+    "deepseek-flash": 134
+  },
+  "total_tokens": 244826,
+  "non_refusal_quality_declines": [
+    {
+      "qid": "fin_005",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "U",
+      "variant_direct": "U",
+      "baseline_retrieval": "U",
+      "variant_retrieval": "U",
+      "delta_gap512": 0.04964418703753576,
+      "delta_gap4096": 0.02888680805719531,
+      "delta_retrieval_score": null
+    },
+    {
+      "qid": "fin_006",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "complete",
+      "variant_direct": "complete",
+      "baseline_retrieval": "complete",
+      "variant_retrieval": "incomplete",
+      "delta_gap512": -6.489835994909958e-05,
+      "delta_gap4096": -0.0002784264577887335,
+      "delta_retrieval_score": 0.5
+    },
+    {
+      "qid": "fin_021",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "complete",
+      "variant_direct": "U",
+      "baseline_retrieval": "complete",
+      "variant_retrieval": "incomplete",
+      "delta_gap512": 0.06563060289175812,
+      "delta_gap4096": 0.045183362478992156,
+      "delta_retrieval_score": 0.16666666666666666
+    },
+    {
+      "qid": "fin_025",
+      "cohort": "development",
+      "condition": "semantic_partial",
+      "baseline_quality": "2",
+      "variant_quality": "1",
+      "quality_declined": true,
+      "variant_refusal": 0,
+      "baseline_direct": "U",
+      "variant_direct": "U",
+      "baseline_retrieval": "U",
+      "variant_retrieval": "U",
+      "delta_gap512": 0.005660227789057027,
+      "delta_gap4096": 0.0008437487177820726,
+      "delta_retrieval_score": null
+    }
+  ],
+  "feature_truncated512": 12,
+  "feature_truncated4096": 0
+}

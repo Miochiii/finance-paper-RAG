@@ -1,0 +1,102 @@
+{
+  "maximum_candidates": 16,
+  "qualified_questions": 16,
+  "qualified_sources": 8,
+  "fresh_normal_answers": 16,
+  "synthetic_controls": 48,
+  "metrics": [
+    {
+      "condition": "controls",
+      "n": 48,
+      "complete": 16,
+      "incomplete": 32,
+      "quality_u": 0,
+      "proxy_u": 6,
+      "false_flags": 0,
+      "flagged_incomplete": 28,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 4,
+      "refusals": 0
+    },
+    {
+      "condition": "control_complete",
+      "n": 16,
+      "complete": 16,
+      "incomplete": 0,
+      "quality_u": 0,
+      "proxy_u": 2,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "control_omitted",
+      "n": 16,
+      "complete": 0,
+      "incomplete": 16,
+      "quality_u": 0,
+      "proxy_u": 2,
+      "false_flags": 0,
+      "flagged_incomplete": 14,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 2,
+      "refusals": 0
+    },
+    {
+      "condition": "control_corrupted",
+      "n": 16,
+      "complete": 0,
+      "incomplete": 16,
+      "quality_u": 0,
+      "proxy_u": 2,
+      "false_flags": 0,
+      "flagged_incomplete": 14,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 2,
+      "refusals": 0
+    },
+    {
+      "condition": "live_normal",
+      "n": 16,
+      "complete": 16,
+      "incomplete": 0,
+      "quality_u": 0,
+      "proxy_u": 2,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    }
+  ],
+  "proxy_bases": 14,
+  "gate": {
+    "status": "passed",
+    "checks": {
+      "enough_questions": true,
+      "enough_sources": true,
+      "controls_available": true,
+      "complete_false_flags": true,
+      "omitted_detection": true,
+      "corrupted_detection": true,
+      "live_complete": true,
+      "live_quality_available": true,
+      "live_proxy_available": true
+    },
+    "scope": "prospective_new_question_objective_scoring_and_normal_generation"
+  },
+  "api_responses": 272,
+  "failed_api_records": 0,
+  "total_tokens": 367777,
+  "actual_models": {
+    "deepseek-flash": 272
+  },
+  "generation_finishes": {
+    "stop": 16
+  },
+  "interpretation": "prospective_new_questions_current_method_development_disjoint_sources_not_wholly_unseen_corpus_or_independent_human_truth",
+  "questions_per_source_maximum": 2,
+  "source_grouped_reporting": true
+}

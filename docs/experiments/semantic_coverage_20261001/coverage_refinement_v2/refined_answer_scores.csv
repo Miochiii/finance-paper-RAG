@@ -1,0 +1,13 @@
+﻿aid,qid,condition,cohort,target_index,quality,rule_refusal,first_status,first_score,refined_status,refined_score,support_status,temporary_point_count
+B0001,fin_025,retained_evidence_prefix,development,1,2,0,U,,complete,0.0,supported,2
+B0002,fin_005,retained_evidence_prefix,development,2,2,0,complete,0.0,U,,uncertain,0
+B0003,fin_025,baseline,development,1,2,0,U,,complete,0.0,supported,2
+B0004,fin_005,semantic_partial,development,2,1,0,U,,U,,mixed,0
+B0005,fin_006,semantic_partial,development,2,1,0,incomplete,0.5,incomplete,0.6666666666666666,supported,3
+B0006,fin_005,baseline,development,2,2,0,U,,U,,uncertain,0
+B0007,fin_021,semantic_partial,development,1,1,0,incomplete,0.16666666666666666,complete,0.0,supported,1
+B0008,fin_021,baseline,development,1,2,0,complete,0.0,complete,0.0,supported,1
+B0009,fin_021,retained_evidence_prefix,development,1,2,0,incomplete,0.5,complete,0.0,supported,1
+B0010,fin_025,semantic_partial,development,1,1,0,U,,incomplete,0.5,mixed,2
+B0011,fin_006,retained_evidence_prefix,development,2,2,0,incomplete,0.1,complete,0.0,uncertain,2
+B0012,fin_006,baseline,development,2,2,0,complete,0.0,complete,0.0,uncertain,3

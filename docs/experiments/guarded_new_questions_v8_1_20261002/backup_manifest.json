@@ -1,0 +1,26 @@
+{
+  "saved_at": "2026-10-02T08:18:49.227199+00:00",
+  "status": "bank_gate_not_passed",
+  "qualified_questions": 5,
+  "qualified_sources": 4,
+  "test_answers": 0,
+  "copied_files": [
+    {
+      "path": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_1_20261002\\pre_answer_bank_disposition.json",
+      "sha256": "2d91901432065bc777263cab17d59ecc8619dad85ec94b1f79eeed5a48c7fd68"
+    },
+    {
+      "path": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_1_20261002\\candidate_screening.csv",
+      "sha256": "eb63fcce7d06083c4702fb4c1980a1e0f3510e865303a18a87ea37f7689738b4"
+    },
+    {
+      "path": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_1_20261002\\admission_diagnostic.csv",
+      "sha256": "cbaa7c4aa2e7462b5a760eb56cfe11f8dde5fe124b3c5fbe51dd636b27ee9346"
+    },
+    {
+      "path": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\guarded_new_questions_v8_1_20261002\\source_exposure.csv",
+      "sha256": "1e52caec0a97dd2e9368d131a505ff96c4a2a14a793e0d6bcea2f06ce5e43fb4"
+    }
+  ],
+  "raw_candidate_data_not_copied": true
+}

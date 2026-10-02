@@ -1,0 +1,110 @@
+{
+  "maximum_candidates": 24,
+  "qualified_questions": 17,
+  "qualified_sources": 11,
+  "fresh_normal_answers": 17,
+  "synthetic_controls": 51,
+  "metrics": [
+    {
+      "condition": "controls",
+      "n": 51,
+      "complete": 17,
+      "incomplete": 34,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "false_flags": 0,
+      "flagged_incomplete": 34,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "control_complete",
+      "n": 17,
+      "complete": 17,
+      "incomplete": 0,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "control_omitted",
+      "n": 17,
+      "complete": 0,
+      "incomplete": 17,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "false_flags": 0,
+      "flagged_incomplete": 17,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "control_corrupted",
+      "n": 17,
+      "complete": 0,
+      "incomplete": 17,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "false_flags": 0,
+      "flagged_incomplete": 17,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "live_normal",
+      "n": 17,
+      "complete": 16,
+      "incomplete": 1,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "false_flags": 0,
+      "flagged_incomplete": 1,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    }
+  ],
+  "proxy_bases": 17,
+  "gate": {
+    "status": "passed",
+    "checks": {
+      "enough_questions": true,
+      "enough_sources": true,
+      "controls_available": true,
+      "complete_false_flags": true,
+      "omitted_detection": true,
+      "corrupted_detection": true,
+      "live_complete": true,
+      "live_quality_available": true,
+      "live_proxy_available": true
+    },
+    "scope": "prospective_new_question_objective_scoring_and_normal_generation"
+  },
+  "api_responses": 371,
+  "failed_api_records": 0,
+  "total_tokens": 478131,
+  "actual_models": {
+    "deepseek-flash": 371
+  },
+  "generation_finishes": {
+    "stop": 17
+  },
+  "interpretation": "prospective_new_test_questions_existing_sources_previously_prepared_cards_same_vendor_automatic_truth",
+  "questions_per_source_maximum": 2,
+  "source_grouped_reporting": true,
+  "admission_attempts": 24,
+  "blind_consistency_pass": 17,
+  "program_valid_candidates": 18,
+  "admission_rejected": 7,
+  "admitted_references_all_blind_consistent": true,
+  "reference_semantics_scope": "automatic_source_consistency_not_independent_truth",
+  "source_exposure_scope": "new_questions_unused_registered_spans_existing_papers",
+  "controls_scope": "synthetic_answer_edits_not_live_evidence_faults"
+}

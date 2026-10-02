@@ -1,0 +1,12 @@
+﻿question_key,input_id,proxy_basis_valid,basis_failure_cause,live_quality,live_proxy,live_rule_refusal
+O0001,T0001,0,literal_value_or_quote_validation,2,U,0
+O0002,T0002,1,,2,complete,0
+O0003,T0003,1,,2,complete,0
+O0004,T0004,0,retrieved_evidence_insufficient,0,U,0
+O0005,T0005,1,,2,complete,0
+O0006,T0006,1,,2,complete,0
+O0007,T0008,0,retrieved_evidence_insufficient,0,U,1
+O0008,T0009,1,,2,complete,0
+O0009,T0010,0,retrieved_evidence_insufficient,0,U,0
+O0010,T0011,0,retrieved_evidence_insufficient,0,U,0
+O0011,T0012,1,,2,complete,0

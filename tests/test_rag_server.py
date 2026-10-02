@@ -118,6 +118,54 @@ def test_observability_summarize(work_tmp):
     assert json.loads(lines[0])["event"] == "ask"
 
 
+def test_ask_failure_logs_quality_fields_without_question_text(monkeypatch):
+    monkeypatch.delenv("deepseek_api", raising=False)
+    events = []
+    monkeypatch.setattr(core, "_log_search_event", lambda event, **fields:
+                        events.append((event, fields)))
+    result = core.ask_kb("如何估计违约风险？", origin="mcp")
+    assert result["ok"] is False
+    assert len(events) == 1 and events[0][0] == "ask"
+    fields = events[0][1]
+    assert fields["origin"] == "mcp"
+    assert fields["ans_refusal_explicit"] is None
+    assert "如何估计" not in str(fields)
+
+
+def test_ask_success_logs_quality_proxy_without_raw_text(monkeypatch):
+    import openai
+    import rag_core.query_processor as query_processor
+
+    monkeypatch.setenv("deepseek_api", "local-test-key")
+    monkeypatch.setattr(core, "get_retriever", lambda: types.SimpleNamespace(
+        retrieve=lambda *args, **kwargs: [{"text": "证据", "metadata": {}}],
+        last_timing={}))
+    monkeypatch.setattr(query_processor, "QueryProcessor", lambda: types.SimpleNamespace(
+        process=lambda question: {"expanded_query": question, "keywords": []}))
+    monkeypatch.setattr(core, "_build_context", lambda results: ("证据", [], []))
+    response = types.SimpleNamespace(
+        choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="答案是 A。"))],
+        usage=None)
+    monkeypatch.setattr(openai, "OpenAI", lambda **kwargs: types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(
+            create=lambda **kwargs: response))))
+    events = []
+    monkeypatch.setattr(core, "_log_search_event", lambda event, **fields:
+                        events.append((event, fields)))
+
+    result = core.ask_kb("问题是什么？", origin="mcp")
+
+    assert result["ok"] is True and result["answer"] == "答案是 A。"
+    assert len(events) == 1 and events[0][0] == "ask"
+    fields = events[0][1]
+    assert fields["ok"] is True
+    assert fields["origin"] == "mcp"
+    assert fields["ans_refusal_explicit"] == 0
+    assert fields["quality_proxy_version"] == "explicit_v1"
+    assert "问题是什么" not in str(fields)
+    assert "答案是 A" not in str(fields)
+
+
 def test_unified_mcp_mounted():
     # 一体化服务：rag_server 同时持有 FastAPI app 与 FastMCP 实例，lifespan 已交接
     assert core.mcp is not None

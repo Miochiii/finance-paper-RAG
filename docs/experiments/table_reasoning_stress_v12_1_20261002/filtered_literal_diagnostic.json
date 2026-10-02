@@ -1,0 +1,14 @@
+{
+  "status": "completed",
+  "checked_at": "2026-10-02T14:21:13.286056+00:00",
+  "post_hoc": true,
+  "primary_grades_changed": false,
+  "calculated_answers": 14,
+  "readable": 14,
+  "unreadable_U": 0,
+  "literal_matches": 10,
+  "literal_mismatches": 4,
+  "primary_complete_but_literal_mismatch": 0,
+  "separate_Fraction_filter_max_verified_all_references": true,
+  "limitation": "post_hoc_simple_numbered_fields_only_not_a_frozen_primary_evaluator"
+}

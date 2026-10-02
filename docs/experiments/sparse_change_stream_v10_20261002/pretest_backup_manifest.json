@@ -1,0 +1,70 @@
+{
+  "saved_at": "2026-10-02T09:56:09.993101+00:00",
+  "phase": "mean_phase_checkpoint",
+  "copied_files": 12,
+  "files": [
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\rag_sparse_change_stream.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\rag_sparse_change_stream.py",
+      "sha256": "83d8780a0b8e8b7b0ed78523df47be6106837794b1c487b5b6f651c7ba4e5bcd"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_sparse_change_stream.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_sparse_change_stream.py",
+      "sha256": "dcca6d8adf09b32a67dbde873c7390a5d3219b6b9afba9424f705e5a4cd6ab78"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\report_rag_sparse_change_stream.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\report_rag_sparse_change_stream.py",
+      "sha256": "a38ab06b2a8595a40400f02986ccc62cf49431c855666ade322562658cafcd66"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\tests\\test_rag_sparse_change_stream.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\tests\\test_rag_sparse_change_stream.py",
+      "sha256": "56240d76f4969c624c6f363e28ccfeac318715a8c3a9394005b962555fd68c43"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\audit_rag_sparse_pretest.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\audit_rag_sparse_pretest.py",
+      "sha256": "a536c8493e8ad1915f459b4dcdbd6065659eed8f8f752d365a96bb54ca42bff1"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\archive_rag_sparse_change_stream.py",
+      "destination": "E:\\file\\agent\\paper_rag_project\\archive_rag_sparse_change_stream.py",
+      "sha256": "a01698ec26e345dd796f31b41ecdfcd7402b9f881d3b39a9eb190a7aba9e1673"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\targeted_tests.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\sparse_change_stream_v10_20261002\\targeted_tests.json",
+      "sha256": "63fb6109736eec0d89fa8a84fcb83273e1c284a1395ba3cc79412aa2cc1519ad"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\source_split.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\sparse_change_stream_v10_20261002\\source_split.json",
+      "sha256": "04de53ae0bdacb6e30e870c3d3421b3e1746423d4cb7f6cb6a7827b7d2087257"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\pretest_integrity_audit.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\sparse_change_stream_v10_20261002\\pretest_integrity_audit.json",
+      "sha256": "3a870210eb00c60305a655bc1e779085325dfc58cc8ef4c2dde6da5086fd1161"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\pretest_disposition.json",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\experiments\\sparse_change_stream_v10_20261002\\pretest_disposition.json",
+      "sha256": "3335a10f27e6f9ed89dd3e9aff4724a0611e7aa9ea878df65934b244d6fd39fd"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\log\\稀疏故障新生成序列V10协议_20261002.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_sparse_v10_protocol_20261002.md",
+      "sha256": "7093042fcda90f35189a226257328f24c45778d2ba918e74cee90e0a0432fcd4"
+    },
+    {
+      "source": "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\sparse_change_stream_v10_20261002\\pretest_progress.md",
+      "destination": "E:\\file\\agent\\paper_rag_project\\docs\\rag_sparse_v10_pretest_20261002.md",
+      "sha256": "fdff6a92d7a47878a0454907e9d9a28a98119719b9c73d27f5eed3f823527e75"
+    }
+  ],
+  "raw_questions_evidence_answers_references_schedule_and_score_cache_not_copied": true,
+  "git_commit": false,
+  "github_push": false
+}

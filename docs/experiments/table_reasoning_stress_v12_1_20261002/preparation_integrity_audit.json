@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T12:29:46.347680+00:00",
+  "new_questions": 27,
+  "target_papers": 9,
+  "evidence_papers": 11,
+  "source_cells_checked": 153,
+  "ranking_corpus_papers": 38,
+  "same_paper_distractors": 7,
+  "cross_paper_distractors": 2,
+  "structural_paired_questions": 27,
+  "all_cell_and_table_coordinates_exact": true,
+  "Decimal_answers_independently_checked_with_Fraction": true,
+  "no_numbers_units_or_source_text_edited": true,
+  "public_fields_and_aliases_only_for_distractor_ranking": true,
+  "all_questions_unchanged_from_zero_answer_V12_preparation": true,
+  "all_candidate_statuses_pending": true,
+  "fresh_generations": 0,
+  "scope": "source_and_arithmetic_integrity_blind_API_semantic_checks_still_required"
+}

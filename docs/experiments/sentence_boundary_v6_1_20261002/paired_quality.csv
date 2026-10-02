@@ -1,0 +1,12 @@
+﻿question_key,baseline_quality,enhanced_quality,baseline_proxy,enhanced_proxy,baseline_refusal,enhanced_refusal,improved,worsened,quality_u
+O0001,2,2,complete,complete,0,0,0,0,0
+O0002,2,2,complete,complete,0,0,0,0,0
+O0003,2,2,complete,complete,0,0,0,0,0
+O0004,2,2,complete,complete,0,0,0,0,0
+O0005,2,2,complete,complete,0,0,0,0,0
+O0006,2,2,complete,complete,0,0,0,0,0
+O0007,2,2,complete,complete,0,0,0,0,0
+O0008,2,2,complete,complete,0,0,0,0,0
+O0009,2,2,complete,complete,0,0,0,0,0
+O0010,2,2,complete,complete,0,0,0,0,0
+O0011,1,2,U,complete,0,0,1,0,0

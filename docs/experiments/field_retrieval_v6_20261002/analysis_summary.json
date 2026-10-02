@@ -1,0 +1,112 @@
+{
+  "questions": 11,
+  "fresh_paired_answers": 22,
+  "synthetic_controls": 33,
+  "metrics": [
+    {
+      "condition": "controls",
+      "n": 33,
+      "complete": 11,
+      "incomplete": 22,
+      "quality_u": 0,
+      "proxy_u": 3,
+      "false_flags": 0,
+      "flagged_incomplete": 20,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 2,
+      "refusals": 0
+    },
+    {
+      "condition": "control_complete",
+      "n": 11,
+      "complete": 11,
+      "incomplete": 0,
+      "quality_u": 0,
+      "proxy_u": 1,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 0,
+      "refusals": 0
+    },
+    {
+      "condition": "control_omitted",
+      "n": 11,
+      "complete": 0,
+      "incomplete": 11,
+      "quality_u": 0,
+      "proxy_u": 1,
+      "false_flags": 0,
+      "flagged_incomplete": 10,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    },
+    {
+      "condition": "control_corrupted",
+      "n": 11,
+      "complete": 0,
+      "incomplete": 11,
+      "quality_u": 0,
+      "proxy_u": 1,
+      "false_flags": 0,
+      "flagged_incomplete": 10,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    },
+    {
+      "condition": "live_baseline",
+      "n": 11,
+      "complete": 7,
+      "incomplete": 4,
+      "quality_u": 0,
+      "proxy_u": 5,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 4,
+      "refusals": 4
+    },
+    {
+      "condition": "live_enhanced",
+      "n": 11,
+      "complete": 10,
+      "incomplete": 1,
+      "quality_u": 0,
+      "proxy_u": 1,
+      "false_flags": 0,
+      "flagged_incomplete": 0,
+      "missed_incomplete": 0,
+      "unresolved_incomplete": 1,
+      "refusals": 0
+    }
+  ],
+  "baseline_proxy_bases": 6,
+  "enhanced_strict_proxy_bases": 9,
+  "enhanced_mapped_proxy_bases": 10,
+  "paired_improved": 4,
+  "paired_worsened": 1,
+  "paired_quality_u": 0,
+  "gate": {
+    "status": "passed",
+    "checks": {
+      "enough_questions": true,
+      "controls_available": true,
+      "complete_false_flags": true,
+      "omitted_detection": true,
+      "corrupted_detection": true
+    },
+    "scope": "evaluator_synthetic_controls_only"
+  },
+  "api_responses": 191,
+  "failed_api_records": 0,
+  "total_tokens": 274164,
+  "actual_models": {
+    "deepseek-flash": 191
+  },
+  "generation_finishes": {
+    "stop": 22
+  },
+  "interpretation": "development_seen_questions_seen_sources_new_paired_answers_multiple_changes_no_causal_ablation"
+}

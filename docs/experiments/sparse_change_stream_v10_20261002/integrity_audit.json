@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T10:21:19.581461+00:00",
+  "fresh_generations": 2480,
+  "schedule_positions": 2480,
+  "scoring_api_records": 104,
+  "distinct_score_inputs": 26,
+  "response_ids_unique_and_new": true,
+  "source_split_and_schedule_replayed": true,
+  "normal_references_and_monitor_plans_unchanged": true,
+  "score_cache_identity_and_derivation_replayed": true,
+  "within_stream_generation_scoring_serial": true,
+  "cache_created_from_new_answers_and_available_before_next_query": true,
+  "all_tests_follow_calibration_lock": true,
+  "calibration_replayed_from_normal_calibration_only": true,
+  "all_scheduled_no_injection_streams_retained": true,
+  "scope": "dataflow_derivation_and_chronology_not_independent_truth_or_cloud_independence"
+}

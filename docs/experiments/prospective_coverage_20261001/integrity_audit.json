@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-01T15:23:47.014465+00:00",
+  "screened_questions": 12,
+  "paired_questions": 3,
+  "generated_answers": 9,
+  "unique_new_api_response_ids": 137,
+  "actual_models": {
+    "deepseek-flash": 137
+  },
+  "code_input_model_hashes_checked": 32,
+  "source_selection_before_generation": true,
+  "all_screening_failures_retained": true,
+  "exact_local_deletion_spans_verified": true,
+  "normative_facts_not_sent_to_proxies": true,
+  "proxy_prompts_and_judgement_functions_unchanged": true,
+  "proxy_plans_completed_before_generation": true,
+  "all_new_responses": true,
+  "all_derived_quality_and_signal_scores_recomputed": true,
+  "external_unseen_test": false
+}

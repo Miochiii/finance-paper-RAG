@@ -1,0 +1,17 @@
+{
+  "recorded_at": "2026-10-02T12:33:04.092835+00:00",
+  "same_paper": 7,
+  "cross_paper": 2,
+  "direct_field_matched_tables": 6,
+  "alias_only_tables": 3,
+  "alias_only_bank_ids": [
+    "T02",
+    "T06",
+    "T09"
+  ],
+  "all_distractors_are_intact_source_tables": true,
+  "all_distractors_are_strong_experiment_tables": false,
+  "maximum_stress_text_characters": 953,
+  "no_answers_used": true,
+  "scope": "preanswer_manipulation_strength_description"
+}

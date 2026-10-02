@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-01T14:28:11.595206+00:00",
+  "exact_proxy_payloads_checked": true,
+  "normative_facts_not_present_in_plan_or_comparison_requests": true,
+  "hashes_checked": 22,
+  "unique_new_response_ids": 37,
+  "all_original_cases_retained": true,
+  "plans_frozen_before_refined_comparison": true,
+  "prospective_validation": false
+}

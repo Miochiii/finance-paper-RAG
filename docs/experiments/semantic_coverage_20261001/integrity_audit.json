@@ -1,0 +1,20 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-01T14:21:51.332366+00:00",
+  "screened_questions": 9,
+  "qualified_questions": 4,
+  "paired_cases": 12,
+  "api_response_ids": 134,
+  "unique_response_ids": 134,
+  "actual_models": {
+    "deepseek-flash": 134
+  },
+  "annotated_facts_not_sent_to_proxies": true,
+  "retrieval_uses_actual_source_metadata": true,
+  "public_schema_and_exact_proxy_payloads_checked": true,
+  "all_screening_failures_retained": true,
+  "semantic_absence_and_other_fact_retention_checked_twice": true,
+  "generation_after_plan_freeze": true,
+  "all_paired_cases_retained": true,
+  "code_input_model_hashes_checked": 23
+}

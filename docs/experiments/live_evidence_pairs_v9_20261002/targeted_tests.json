@@ -1,0 +1,8 @@
+{
+  "checked_at": "2026-10-02T09:22:16.230492+00:00",
+  "exit_code": 0,
+  "passed": 31,
+  "command": "python -m pytest -q -p no:cacheprovider tests/test_rag_live_evidence_pairs.py tests/test_rag_percent_fact_guard.py tests/test_rag_numeric_unit_mapping.py tests/test_rag_field_refusal.py tests/test_rag_table_axis_clarification.py",
+  "initial_environment_error": "First run: pytest default temp directory access denied; removed unneeded tmp_path fixture before protocol freeze; no product failure",
+  "includes_generation_block_on_preflight_failure": true
+}

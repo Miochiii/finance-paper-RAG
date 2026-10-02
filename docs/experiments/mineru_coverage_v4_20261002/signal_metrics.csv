@@ -1,0 +1,5 @@
+﻿condition,n,complete,incomplete,quality_u,proxy_u,false_flags,flagged_incomplete,missed_incomplete,unresolved_incomplete,refusals
+all,25,6,6,13,11,0,3,1,2,0
+cached,12,2,2,8,6,0,1,0,1,0
+mineru_retrieved,12,4,3,5,5,0,1,1,1,0
+known_omission_control,1,0,1,0,0,0,1,0,0,0

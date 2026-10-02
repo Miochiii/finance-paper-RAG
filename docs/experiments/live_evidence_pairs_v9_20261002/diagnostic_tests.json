@@ -1,0 +1,8 @@
+{
+  "checked_at": "2026-10-02T09:30:35.191474+00:00",
+  "exit_code": 0,
+  "passed": 2,
+  "phase": "posthoc_literal_diagnostic_not_primary_method",
+  "command": "python -m pytest -q -p no:cacheprovider tests/test_diagnose_rag_live_evidence_literals.py",
+  "purpose": "Prevent whitespace deletion from joining a number to the next list index; separate coefficient and bracketed statistics"
+}

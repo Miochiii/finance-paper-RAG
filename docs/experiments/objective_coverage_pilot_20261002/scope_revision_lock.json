@@ -1,0 +1,24 @@
+{
+  "version": "objective_slots_v5_1_scope_by_construction",
+  "locked_at": "2026-10-02T03:12:37.928667+00:00",
+  "hashes": {
+    "E:\\file\\agent\\python.v\\project\\rag_objective_scope_revision.py": "45b742f12e5f71f97255079c22162ff6c2db1dd6a46801275f26381ec2f0af2c",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\protocol_lock.json": "f3deacc65c16438b16a2c052bdaadbb92681bcff9de10e894858fe8d538037fb",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0001.json": "5d4bd9a3b72cc69f48e8b899d8c168c7bf2b8c05a300d6098d53da5480f0038e",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0002.json": "16999c4e9d8ca87ebbafb25fa8bbc454722b9c4ae012eb4a6a0baca8d931f635",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0003.json": "842b0551bc6d0773f824c037956d69d10806ff7b736e98821257b38ede921ddb",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0004.json": "33d9a75b809980e17647d7f9c4b40e2a16eaad8ceb1d9bcec86e0956958a7c70",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0005.json": "0ba3561e4a7d27ed0562dace895a441d487eacb89cdf285716e953fbb56c8742",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0006.json": "c5c4023a629d7533e446e4c1680002b862c7ed7f1935aa6dfbde5d24fadc206e",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0007.json": "15544a4b549c175fd344d1aa3e950f816b0ed835ad0700e622fd710fe1532d7b",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0008.json": "be95b9dd6e204e2c1d0dca43ad0eae5e648e045d0771965b48b434aedc4e9474",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0009.json": "e366328355e42d68886cef3870700efdc4b6f13e2c364d34b4e222594372d5e6",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0010.json": "e3a4f0b9cbf05fe9aa00271fa90a6cc612edb96476d232a0aa7881ab28def23f",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0011.json": "24028616628bf68140becd4accf4423e8a462d7ae77df05313a8e10b7a9aa412",
+    "E:\\file\\agent\\python.v\\project\\results\\rag_fault_40_live_20260927\\objective_coverage_pilot_20261002\\candidates\\T0012.json": "3204c06433ad63c5eb8d7fe6055d7e053279858ccf8c2781ac25909235b64321"
+  },
+  "no_test_answers_seen": true,
+  "reason": "initial_scope_checks_accepted_incomplete_field_list_and_invalid_question_quotes",
+  "scope_builder_public_values_only": true,
+  "minimum_gate_unchanged": true
+}

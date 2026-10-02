@@ -1,0 +1,71 @@
+{
+  "version": "live_numeric_evidence_pairs_v9",
+  "interpretation": "seen_questions_existing_sources_cached_normal_context_same_vendor_automatic_truth",
+  "input_questions": 17,
+  "structural_eligible": 10,
+  "qualified_pairs": 10,
+  "qualified_sources": 8,
+  "excluded_before_answers": 7,
+  "fresh_generations": 20,
+  "synthetic_answers": 0,
+  "metrics": [
+    {
+      "condition": "live_normal",
+      "n": 10,
+      "complete": 10,
+      "bad": 0,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "bad_flagged": 0,
+      "bad_missed": 0,
+      "bad_unresolved": 0,
+      "complete_false_flags": 0,
+      "complete_proxy_u": 0,
+      "refusals": 0,
+      "bad_without_refusal": 0,
+      "bad_without_refusal_flagged": 0
+    },
+    {
+      "condition": "live_corrupted",
+      "n": 10,
+      "complete": 0,
+      "bad": 10,
+      "quality_u": 0,
+      "proxy_u": 0,
+      "bad_flagged": 10,
+      "bad_missed": 0,
+      "bad_unresolved": 0,
+      "complete_false_flags": 0,
+      "complete_proxy_u": 0,
+      "refusals": 0,
+      "bad_without_refusal": 10,
+      "bad_without_refusal_flagged": 10
+    }
+  ],
+  "complete_to_bad": 10,
+  "paired_worsened": 10,
+  "paired_improved": 0,
+  "paired_quality_u": 0,
+  "gate": {
+    "status": "passed",
+    "checks": {
+      "normal_quality": true,
+      "paired_quality_drop": true,
+      "bad_detection": true,
+      "normal_false_flags": true,
+      "quality_u": true
+    },
+    "scope": "numeric_evidence_fault_mechanism_gate_not_stream_change_point_validation"
+  },
+  "api_responses": 130,
+  "failed_api_records": 0,
+  "total_tokens": 196929,
+  "actual_models": {
+    "deepseek-flash": 130
+  },
+  "generation_finishes": {
+    "stop": 20
+  },
+  "coverage_monitor_source": "unmodified_normal_evidence",
+  "fault_plans_used_for_answer_scoring": false
+}

@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "passed": 31,
+  "stage_specific": 8,
+  "dependencies": 23,
+  "performed_before_protocol": true,
+  "recorded_at": "2026-10-02T10:48:28.577063+00:00",
+  "command": "python -m pytest tests/test_rag_benign_normal_stress.py tests/test_rag_live_evidence_pairs.py tests/test_rag_numeric_unit_mapping.py -q -p no:cacheprovider"
+}

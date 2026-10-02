@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T05:27:19.773082+00:00",
+  "questions": 11,
+  "source_documents": 29,
+  "cases": 55,
+  "fresh_generations": 22,
+  "api_records": 169,
+  "raw_payloads_reconstructed": true,
+  "raw_spans_source_scope_and_budgets_checked": true,
+  "normative_ranking_inputs_excluded": true,
+  "fixed_control_truth_rederived": true,
+  "all_scores_recomputed": true,
+  "pre_answer_phase_locks_checked": true,
+  "frozen_parent_files_unchanged": true,
+  "all_unresolved_cases_retained": true
+}

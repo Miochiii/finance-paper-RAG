@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "checked_at": "2026-10-02T08:53:40.408386+00:00",
+  "api_responses": 16,
+  "unique_response_ids": true,
+  "request_hashes_and_raw_json_verified": true,
+  "locked_inputs_verified": true,
+  "scope": "focused_pair_dataflow_source_matrix_parser_and_time_order_not_general_performance"
+}

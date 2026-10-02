@@ -1,0 +1,13 @@
+{
+  "locked_at": "2026-10-02T14:07:48.866363+00:00",
+  "before_test_answers": true,
+  "tests_passed": 6,
+  "hashes": {
+    "E:\\file\\agent\\python.v\\project\\diagnose_rag_table_calculation_literals.py": "3e63d9fe8bf1d8bfd50072fe70dc6150700b9812f19f84fa367f8d74e398e051",
+    "E:\\file\\agent\\python.v\\project\\tests\\test_rag_table_calculation_literals.py": "59663a80f4015929ad518f1ba348029116a4159103ce2e09a7af650d3af7a0d8"
+  },
+  "method": "parse_unique_explicit_third_result_field_without_gold_then_compare_numeric_literal",
+  "primary_grades_changed": false,
+  "unknown_layouts_retained": true,
+  "no_extra_API_requests": true
+}

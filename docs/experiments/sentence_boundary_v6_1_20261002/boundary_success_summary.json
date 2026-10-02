@@ -1,0 +1,12 @@
+{
+  "status": "passed",
+  "checks": {
+    "target_basis": true,
+    "target_new_answer_complete": true,
+    "no_paired_quality_regression": true,
+    "no_repaired_quality_u": true,
+    "synthetic_control_gate": true,
+    "all22_new_answers": true
+  },
+  "scope": "development_regression_repair_on_seen_questions_not_external_validation"
+}
