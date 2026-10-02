@@ -20,7 +20,7 @@ jobs:
       # 瘦身依赖：仅测试所需（不装 torch/modelscope 等大件，
       # 测试为纯函数/文件级，无需 GPU 与模型）
       - name: Install test dependencies
-        run: pip install numpy scikit-learn hmmlearn tiktoken jieba rank-bm25 qdrant-client python-docx scipy pandas pdfplumber PyMuPDF pillow fastapi uvicorn fastmcp==3.4.7 pydantic pytest python-dotenv
+        run: pip install numpy scikit-learn hmmlearn tiktoken jieba rank-bm25 qdrant-client python-docx scipy pandas pdfplumber PyMuPDF pillow fastapi uvicorn fastmcp==3.4.7 pydantic pytest python-dotenv openai
 
       - name: Run tests
         run: python -m pytest tests -q -p no:cacheprovider
